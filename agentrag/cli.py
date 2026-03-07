@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, Mapping
 
 import typer
 from qdrant_client import QdrantClient
@@ -13,6 +14,20 @@ from agentrag.providers.embeddings import EmbeddingProvider
 from agentrag.qdrant_store import QdrantStore
 
 app = typer.Typer(no_args_is_help=True)
+
+
+def _json_error_and_exit(
+    code: str,
+    message: str,
+    details: dict[str, object] | None = None,
+    exit_code: int = 1,
+) -> None:
+    error_payload: dict[str, object] = {"code": code, "message": message}
+    if details:
+        error_payload["details"] = details
+    payload = {"ok": False, "error": error_payload}
+    typer.echo(json.dumps(payload, ensure_ascii=True, indent=2), err=True)
+    raise typer.Exit(code=exit_code)
 
 
 def _resolve_qdrant_api_key(url: str, api_key: str) -> str | None:
@@ -41,8 +56,11 @@ def _preflight_query_collection(
         require_non_empty=True,
     )
     if not ok:
-        typer.echo(f"Qdrant preflight failed: {message}", err=True)
-        raise typer.Exit(code=1)
+        _json_error_and_exit(
+            code="QDRANT_PREFLIGHT_FAILED",
+            message=message,
+            details={"collection": collection_name},
+        )
 
 
 def _check_qdrant(
@@ -88,6 +106,73 @@ def _check_qdrant(
     return True, "ok", None
 
 
+def _extract_collection_vector_size(vectors_config: Any) -> int | None:
+    # Handles common qdrant-client shapes:
+    # - VectorParams(size=...)
+    # - {"default": VectorParams(...)} / {"default": {"size": ...}}
+    size = getattr(vectors_config, "size", None)
+    if size is not None:
+        return int(size)
+    if isinstance(vectors_config, Mapping):
+        if not vectors_config:
+            return None
+        first = next(iter(vectors_config.values()))
+        named_size = getattr(first, "size", None)
+        if named_size is not None:
+            return int(named_size)
+        if isinstance(first, Mapping) and first.get("size") is not None:
+            return int(first["size"])
+    return None
+
+
+def _check_embedding_collection_dimension(
+    qdrant_url: str,
+    qdrant_api_key: str,
+    collection_name: str,
+    embed_dimensions: int,
+    allow_missing_collection: bool,
+    timeout_seconds: float = 2.0,
+) -> tuple[bool, str]:
+    client = QdrantClient(
+        url=qdrant_url,
+        api_key=_resolve_qdrant_api_key(qdrant_url, qdrant_api_key),
+        timeout=timeout_seconds,
+    )
+    try:
+        collections = client.get_collections().collections
+    except Exception as exc:
+        return False, f"unable to reach qdrant for dimension check. error={exc}"
+
+    names = {c.name for c in collections}
+    if collection_name not in names:
+        if allow_missing_collection:
+            return True, "collection_missing_will_be_created"
+        return False, f"collection '{collection_name}' does not exist."
+
+    try:
+        info = client.get_collection(collection_name=collection_name)
+    except Exception as exc:
+        return False, f"unable to read collection '{collection_name}' config. error={exc}"
+
+    vectors_config = getattr(getattr(info, "config", None), "params", None)
+    vectors_config = getattr(vectors_config, "vectors", None)
+    existing_size = _extract_collection_vector_size(vectors_config)
+    if existing_size is None:
+        return False, f"unable to determine vector size for collection '{collection_name}'."
+
+    if int(embed_dimensions) != int(existing_size):
+        return (
+            False,
+            (
+                "embedding dimension mismatch: "
+                f"model_dim={embed_dimensions} collection_dim={existing_size} "
+                f"collection='{collection_name}'. "
+                "Use a new collection or recreate this collection and re-ingest."
+            ),
+        )
+    return True, "ok"
+
+
 def _build_embedder_or_exit(settings: object) -> EmbeddingProvider:
     try:
         return EmbeddingProvider(
@@ -102,15 +187,48 @@ def _build_embedder_or_exit(settings: object) -> EmbeddingProvider:
             ),
         )
     except Exception as exc:
-        typer.echo(
-            "Embedding model preflight failed: "
-            f"provider={getattr(settings, 'embedding_provider', '')} "
-            f"model={getattr(settings, 'embedding_model', '')} "
-            f"path={getattr(settings, 'llama_cpp_embed_model_path', '')} "
-            f"base_url={getattr(settings, 'openai_compatible_base_url', '')}. error={exc}",
-            err=True,
+        _json_error_and_exit(
+            code="EMBEDDING_PREFLIGHT_FAILED",
+            message=str(exc),
+            details={
+                "provider": str(getattr(settings, "embedding_provider", "")),
+                "model": str(getattr(settings, "embedding_model", "")),
+                "path": str(getattr(settings, "llama_cpp_embed_model_path", "")),
+                "base_url": str(getattr(settings, "openai_compatible_base_url", "")),
+            },
         )
-        raise typer.Exit(code=1)
+
+
+def _raise_friendly_dimension_error(collection_name: str, exc: Exception, code: str) -> None:
+    message = str(exc)
+    normalized = message.lower()
+    if "Vector dimension error" in message and "expected dim" in message and "got" in message:
+        _json_error_and_exit(
+            code="VECTOR_DIMENSION_MISMATCH",
+            message="Embedding dimension does not match collection vector size.",
+            details={
+                "collection": collection_name,
+                "raw_error": message,
+                "action": "use new collection or recreate and re-ingest",
+            },
+        )
+    if "timeout" in normalized or "timed out" in normalized:
+        _json_error_and_exit(
+            code="RUNTIME_TIMEOUT",
+            message="Operation timed out while processing request.",
+            details={"collection": collection_name, "raw_error": message},
+        )
+    if "connection" in normalized or "connect" in normalized:
+        _json_error_and_exit(
+            code="RUNTIME_CONNECTIVITY_FAILED",
+            message="Connection failed while processing request.",
+            details={"collection": collection_name, "raw_error": message},
+        )
+    _json_error_and_exit(
+        code=code,
+        message="Runtime error while processing request.",
+        details={"collection": collection_name, "raw_error": message},
+    )
 
 
 @app.command("ingest")
@@ -131,10 +249,28 @@ def ingest_command(
         require_non_empty=False,
     )
     if not ok:
-        typer.echo(f"Qdrant preflight failed: {message}", err=True)
-        raise typer.Exit(code=1)
+        _json_error_and_exit(
+            code="QDRANT_PREFLIGHT_FAILED",
+            message=message,
+            details={"collection": collection_name},
+        )
 
     embedder = _build_embedder_or_exit(settings)
+    if bool(getattr(settings, "enable_dimension_preflight", True)):
+        dim_ok, dim_message = _check_embedding_collection_dimension(
+            qdrant_url=settings.qdrant_url,
+            qdrant_api_key=settings.qdrant_api_key,
+            collection_name=collection_name,
+            embed_dimensions=embedder.dimensions,
+            allow_missing_collection=True,
+            timeout_seconds=2.0,
+        )
+        if not dim_ok:
+            _json_error_and_exit(
+                code="DIMENSION_PREFLIGHT_FAILED",
+                message=dim_message,
+                details={"collection": collection_name, "embed_dimensions": embedder.dimensions},
+            )
     store = QdrantStore(
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
@@ -149,13 +285,16 @@ def ingest_command(
         else:
             files.append(p)
 
-    result = ingest_paths(
-        files,
-        store=store,
-        embedder=embedder,
-        access_level=access_level,
-        dry_run=dry_run,
-    )
+    try:
+        result = ingest_paths(
+            files,
+            store=store,
+            embedder=embedder,
+            access_level=access_level,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        _raise_friendly_dimension_error(collection_name, exc, code="INGEST_RUNTIME_FAILED")
     if dry_run:
         typer.echo(
             "Dry run completed. "
@@ -188,22 +327,40 @@ def query_command(
         collection_name=collection_name,
     )
     embedder = _build_embedder_or_exit(settings)
+    if bool(getattr(settings, "enable_dimension_preflight", True)):
+        dim_ok, dim_message = _check_embedding_collection_dimension(
+            qdrant_url=settings.qdrant_url,
+            qdrant_api_key=settings.qdrant_api_key,
+            collection_name=collection_name,
+            embed_dimensions=embedder.dimensions,
+            allow_missing_collection=False,
+            timeout_seconds=2.0,
+        )
+        if not dim_ok:
+            _json_error_and_exit(
+                code="DIMENSION_PREFLIGHT_FAILED",
+                message=dim_message,
+                details={"collection": collection_name, "embed_dimensions": embedder.dimensions},
+            )
     store = QdrantStore(
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
         collection_name=collection_name,
         vector_size=embedder.dimensions,
     )
-    result = run_query_pipeline(
-        query=q,
-        settings=settings,
-        embedder=embedder,
-        store=store,
-        top_k=top_k,
-        node_type=node_type,
-        language=language,
-        access_level=access_level,
-    )
+    try:
+        result = run_query_pipeline(
+            query=q,
+            settings=settings,
+            embedder=embedder,
+            store=store,
+            top_k=top_k,
+            node_type=node_type,
+            language=language,
+            access_level=access_level,
+        )
+    except Exception as exc:
+        _raise_friendly_dimension_error(collection_name, exc, code="QUERY_RUNTIME_FAILED")
     results = result.hits
     out_hits: list[dict[str, object]] = []
     for i, hit in enumerate(results, start=1):
@@ -342,6 +499,12 @@ def env_status_command() -> None:
         float(getattr(settings, "embedding_request_timeout_seconds", 30.0)) > 0.0,
         getattr(settings, "embedding_request_timeout_seconds", 30.0),
         "must be > 0",
+    )
+    add_check(
+        "ENABLE_DIMENSION_PREFLIGHT",
+        isinstance(getattr(settings, "enable_dimension_preflight", True), bool),
+        getattr(settings, "enable_dimension_preflight", True),
+        "must be boolean",
     )
     add_check(
         "FINAL_TOP_K <= RERANK_CANDIDATES",

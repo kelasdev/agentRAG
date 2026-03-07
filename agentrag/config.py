@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     embedding_request_timeout_seconds: float = Field(
         default=30.0, alias="EMBEDDING_REQUEST_TIMEOUT_SECONDS"
     )
+    enable_dimension_preflight: bool = Field(default=True, alias="ENABLE_DIMENSION_PREFLIGHT")
 
     enable_reranker: bool = Field(default=True, alias="ENABLE_RERANKER")
     rerank_candidates: int = Field(default=20, alias="RERANK_CANDIDATES")

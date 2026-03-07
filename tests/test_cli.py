@@ -37,6 +37,7 @@ def test_query_command_outputs_json(monkeypatch):
     monkeypatch.setattr(cli, "EmbeddingProvider", _DummyEmbedder)
     monkeypatch.setattr(cli, "QdrantStore", _DummyStore)
     monkeypatch.setattr(cli, "_preflight_query_collection", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_check_embedding_collection_dimension", lambda **kwargs: (True, "ok"))
 
     fake_result = QueryPipelineResult(
         plan=QueryPlan(
@@ -107,7 +108,9 @@ def test_query_preflight_fails_when_collection_missing(monkeypatch):
     res = runner.invoke(cli.app, ["query", "hello"])
 
     assert res.exit_code == 1
-    assert "does not exist" in res.stderr
+    err = json.loads(res.stderr)
+    assert err["error"]["code"] == "QDRANT_PREFLIGHT_FAILED"
+    assert "does not exist" in err["error"]["message"]
 
 
 def test_query_preflight_fails_when_collection_empty(monkeypatch):
@@ -153,4 +156,72 @@ def test_query_preflight_fails_when_collection_empty(monkeypatch):
     res = runner.invoke(cli.app, ["query", "hello"])
 
     assert res.exit_code == 1
-    assert "is empty" in res.stderr
+    err = json.loads(res.stderr)
+    assert err["error"]["code"] == "QDRANT_PREFLIGHT_FAILED"
+    assert "is empty" in err["error"]["message"]
+
+
+def test_query_preflight_fails_when_dimension_mismatch(monkeypatch):
+    runner = CliRunner()
+
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: SimpleNamespace(
+            qdrant_url="http://localhost:6333",
+            qdrant_api_key="",
+            collection_name="agentrag_memory",
+            embedding_provider="llama_cpp_python",
+            embedding_model="dummy",
+            llama_cpp_embed_model_path=None,
+            llama_cpp_n_threads=4,
+        ),
+    )
+    monkeypatch.setattr(cli, "EmbeddingProvider", _DummyEmbedder)
+    monkeypatch.setattr(cli, "_preflight_query_collection", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "_check_embedding_collection_dimension",
+        lambda **kwargs: (False, "embedding dimension mismatch: model_dim=768 collection_dim=384"),
+    )
+
+    res = runner.invoke(cli.app, ["query", "hello"])
+    assert res.exit_code == 1
+    err = json.loads(res.stderr)
+    assert err["error"]["code"] == "DIMENSION_PREFLIGHT_FAILED"
+    assert "embedding dimension mismatch" in err["error"]["message"]
+
+
+def test_query_handles_qdrant_dimension_error_with_friendly_message(monkeypatch):
+    runner = CliRunner()
+
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: SimpleNamespace(
+            qdrant_url="http://localhost:6333",
+            qdrant_api_key="",
+            collection_name="agentrag_memory",
+            embedding_provider="llama_cpp_python",
+            embedding_model="dummy",
+            llama_cpp_embed_model_path=None,
+            llama_cpp_n_threads=4,
+        ),
+    )
+    monkeypatch.setattr(cli, "EmbeddingProvider", _DummyEmbedder)
+    monkeypatch.setattr(cli, "QdrantStore", _DummyStore)
+    monkeypatch.setattr(cli, "_preflight_query_collection", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_check_embedding_collection_dimension", lambda **kwargs: (True, "ok"))
+    monkeypatch.setattr(
+        cli,
+        "run_query_pipeline",
+        lambda **kwargs: (_ for _ in ()).throw(
+            Exception("Wrong input: Vector dimension error: expected dim: 4096, got 768")
+        ),
+    )
+
+    res = runner.invoke(cli.app, ["query", "hello"])
+    assert res.exit_code == 1
+    err = json.loads(res.stderr)
+    assert err["error"]["code"] == "VECTOR_DIMENSION_MISMATCH"
+    assert err["error"]["details"]["collection"] == "agentrag_memory"

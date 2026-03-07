@@ -42,7 +42,7 @@ agentRAG memberikan:
 
 -**Scalability** - Arsitektur yang bisa dikembangkan ke cloud
 
--**Cost Effective** - Arsitektur cloud-only mengurangi biaya operasional infrastruktur lokal
+-**Cost Effective** - Mendukung mode lokal dan cloud endpoint sehingga biaya bisa disesuaikan kebutuhan
 
 ### Target Market
 
@@ -519,23 +519,21 @@ client.search(...)
 
 ### Resource Constraints
 
-***No GPU Required** - Semua embedding via API, tidak ada dependency GPU
+***No GPU Required** - Default berjalan di CPU; tidak mewajibkan GPU
 
-***Memory Efficient** - Embedding via API call, minimal memory usage
+***Memory Efficient** - Konfigurasi dapat dioptimalkan untuk RAM terbatas (mis. 2GB)
 
 ***Low Latency** - Target <1s per query (tergantung API response time)
 
 ***Scalable** - Bisa dijalankan di mesin dengan resource terbatas
 
-***API-First with Optional Local Fallback** - Default menggunakan provider API; local provider (Ollama/FastEmbed) hanya untuk fallback/resilience
+***Provider-Agnostic** - Mendukung provider lokal (`fastembed`, `llama_cpp_python`) dan endpoint `openai_compatible`
 
 ### Embedding Flexibility
 
 ***OpenAI-Compatible API** - OpenAI, Azure OpenAI, atau compatible services
 
-***Local Services** - Ollama, LM Studio, LocalAI
-
-***API Compatible** - Format OpenAI API untuk semua layanan
+***Endpoint Compatible** - Mendukung endpoint yang kompatibel OpenAI API (`/embeddings`)
 
 ## Environment Configuration (.env)
 
@@ -647,9 +645,54 @@ graph TD
 * Privacy dan compliance requirements
 * Kompatibilitas OpenAI-compatible API
 
-### Fallback Policy
+### Runtime Notes
 
-* Embedding gagal di provider utama -> fallback ke `fastembed`
+* Tidak ada fallback otomatis antar provider; provider aktif mengikuti `EMBEDDING_PROVIDER`.
+* Jika berpindah provider/model dengan dimensi berbeda, lakukan re-ingest atau gunakan collection baru.
+* Rekomendasi verifikasi cepat: jalankan `agentrag env-status` sebelum ingest/query.
+
+### Preflight Validation (Ingest/Query)
+
+Sebelum proses utama berjalan, CLI melakukan preflight:
+
+* `query`: cek koneksi Qdrant, collection ada + tidak kosong, inisialisasi embedding, dan kesesuaian dimensi embedding vs dimensi collection.
+* `ingest`: cek koneksi Qdrant, inisialisasi embedding, dan jika collection sudah ada maka dimensi harus sesuai. Jika collection belum ada, collection dibuat mengikuti dimensi model aktif.
+
+Jika dimensi tidak cocok, proses dihentikan sebelum retrieval/ingest berjalan.
+
+### Error Response Format (JSON)
+
+Untuk kegagalan preflight/runtime kritikal, CLI mengembalikan JSON terstruktur:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "DIMENSION_PREFLIGHT_FAILED",
+    "message": "embedding dimension mismatch: model_dim=768 collection_dim=4096 collection='agentrag_memory'. Use a new collection or recreate this collection and re-ingest.",
+    "details": {
+      "collection": "agentrag_memory",
+      "embed_dimensions": 768
+    }
+  }
+}
+```
+
+Kode error yang umum:
+
+* `QDRANT_PREFLIGHT_FAILED`
+* `EMBEDDING_PREFLIGHT_FAILED`
+* `DIMENSION_PREFLIGHT_FAILED`
+* `VECTOR_DIMENSION_MISMATCH`
+
+### Env Status Output (Ringkas)
+
+`agentrag env-status` menampilkan:
+
+* `ok`: status keseluruhan valid/tidak
+* `embedding_runtime`: provider aktif + informasi relevan (model/model_path/base_url) + `dimensions`
+* `passed`: map check yang lolos (`CHECK_NAME: value`)
+* `failed`: map check gagal (`CHECK_NAME: error`)
 
 ## Struktur Payload Collection
 
