@@ -539,7 +539,6 @@ client.search(...)
 
 ## Environment Configuration (.env)
 
-Gunakan konfigurasi berikut sebagai baseline untuk deployment cloud + reasoning/summarizer pipeline:
 
 ```env
 # Qdrant Configuration
@@ -548,92 +547,50 @@ QDRANT_API_KEY=your_qdrant_api_key_here
 DEFAULT_TOP_K_MEMORY_QUERY=3
 
 # Embedding Configuration
-# Options: openrouter, gemini, ollama, fastembed, llama_cpp_python (default fallback: fastembed)
-EMBEDDING_PROVIDER=openrouter
-EMBEDDING_MODEL=qwen/qwen3-embedding-8b
-
-# Summarizer Configuration
-# Options: openrouter (default), gemini, ollama, llama_cpp_python
-SUMMARIZER_PROVIDER=openrouter
-SUMMARIZER_MODEL=openai/gpt-oss-20b:free
-
-# Reasoning Configuration
-# Options: openrouter, gemini, ollama, llama_cpp_python (OpenAI-compatible supported)
-ENABLE_REASONING=true
-REASONING_PROVIDER=openrouter
-REASONING_MODEL=openai/gpt-oss-20b:free
-REASONING_MAX_STEPS=3
+# Options: fastembed, llama_cpp_python, openai_compatible
+EMBEDDING_PROVIDER=fastembed
+EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-code
 
 # Reranker Configuration
-# Options: fastembed, openrouter, gemini, ollama, llama_cpp_python (OpenAI-compatible supported)
+# Reranker uses embedding strategy from EMBEDDING_PROVIDER
 ENABLE_RERANKER=true
-RERANKER_PROVIDER=fastembed
-RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 RERANK_CANDIDATES=20
 FINAL_TOP_K=3
 
 # llama-cpp-python Local GGUF Paths (Optional)
 LLAMA_CPP_EMBED_MODEL_PATH=./models/nomic-embed-text-v2-moe.Q4_K_M.gguf
-LLAMA_CPP_RERANKER_MODEL_PATH=./models/gte-multilingual-reranker-base-Q4_K_M.gguf
-LLAMA_CPP_SUMMARIZER_MODEL_PATH=./models/Qwen3.5-0.8B-Q4_K_M.gguf
-LLAMA_CPP_REASONING_MODEL_PATH=./models/reasoning-0.5b-q4_k_m.gguf
+LLAMA_CPP_N_THREADS=4
 
-# Provider API Keys / Endpoints
-OPENROUTER_API_KEY=your_openrouter_key_here
-GEMINI_API_KEY=your_gemini_key_here
-OLLAMA_API_URL=http://localhost:11434
-OLLAMA_API_KEY=
-
-# OpenAI-Compatible Endpoint (Optional)
-# Bisa diarahkan ke provider lain atau local gateway yang kompatibel OpenAI API
+# OpenAI-Compatible Embedding Endpoint (Optional)
 OPENAI_COMPATIBLE_BASE_URL=
 OPENAI_COMPATIBLE_API_KEY=
+EMBEDDING_REQUEST_TIMEOUT_SECONDS=30
+
 ```
 
 ### Provider Selection
 
-***OpenRouter (Recommended)**  
-Best untuk embedding: `qwen/qwen3-embedding-8b`  
-Best untuk summarization: `openai/gpt-oss-20b:free`  
-Butuh API key dari openrouter.ai  
-Menggunakan OpenAI-compatible SDK/headers
-
-***Gemini**  
-Bagus untuk embedding dan summarization  
-Tersedia free tier  
-API key dari Google AI Studio
-
-***Ollama**  
-Local, gratis, privacy-focused  
-Butuh Ollama service berjalan di endpoint `OLLAMA_API_URL`  
-Bisa self-hosted/cloud Ollama via API key  
-Contoh model: `nomic-embed-text:v1.5` (embedding), `llama2` (summarization)
-
-***FastEmbed (Fallback)**  
-Embedding lokal  
+***FastEmbed (Default)**  
+Embedding lokal berbasis ONNX  
 Tanpa API key  
-Dipakai sebagai fallback otomatis saat provider embedding utama gagal
+Default model: `jinaai/jina-embeddings-v2-base-code`
 
 ***llama-cpp-python (Local GGUF)**  
 Menjalankan model lokal berbasis file `.gguf` tanpa API eksternal  
-Path model diatur via:
-`LLAMA_CPP_EMBED_MODEL_PATH`, `LLAMA_CPP_RERANKER_MODEL_PATH`, `LLAMA_CPP_SUMMARIZER_MODEL_PATH`, `LLAMA_CPP_REASONING_MODEL_PATH`  
-Contoh:
-`nomic-embed-text-v2-moe.Q4_K_M.gguf`, `gte-multilingual-reranker-base-Q4_K_M.gguf`, `Qwen3.5-0.8B-Q4_K_M.gguf`, `reasoning-0.5b-q4_k_m.gguf`
+Path model diatur via `LLAMA_CPP_EMBED_MODEL_PATH`
+Contoh: `nomic-embed-text-v2-moe.Q4_K_M.gguf`
 
-***OpenAI-Compatible (Local/Custom Provider)**  
-Mendukung endpoint yang kompatibel dengan OpenAI API (mis. local gateway, provider pihak ketiga, self-hosted)  
-Bisa dipakai untuk reasoning/summarizer/reranker selama format API kompatibel  
-Konfigurasi via `OPENAI_COMPATIBLE_BASE_URL` dan `OPENAI_COMPATIBLE_API_KEY`
+***OpenAI-Compatible (Endpoint API)**  
+Menjalankan embedding lewat endpoint yang kompatibel OpenAI `/embeddings`  
+Konfigurasi via `OPENAI_COMPATIBLE_BASE_URL` dan `OPENAI_COMPATIBLE_API_KEY`  
+Model tetap dikontrol dari `EMBEDDING_MODEL`
 
 ### Runtime Policy (Recommended)
 
-1. Primary provider: `openrouter` untuk embedding + summarizer
-2. Fallback embedding: `fastembed` jika koneksi provider eksternal gagal
-3. Reasoning aktif saat `ENABLE_REASONING=true`, maksimal langkah mengikuti `REASONING_MAX_STEPS`
+1. Primary provider: `fastembed` untuk embedding
+2. Alternatif lokal: `llama_cpp_python` dengan model GGUF embedding
+3. Alternatif service endpoint: `openai_compatible`
 4. Reranking aktif saat `ENABLE_RERANKER=true`, kandidat awal `RERANK_CANDIDATES`, output akhir `FINAL_TOP_K`
-5. Fallback summarizer/reasoning/reranker: retry ke provider kedua (`gemini`, `ollama`, atau `llama_cpp_python`) jika timeout/error
-6. Semua provider error: kembalikan context retrieval mentah (tanpa summarizer) agar sistem tetap responsif
 
 ### Arsitektur
 
@@ -648,27 +605,17 @@ graph TD
     E --> F[Qdrant Cloud via URL]
 
     U[Client: CLI / Python / MCP] --> G[Query API Layer]
-    G --> H[Reasoning Planner]
-    H --> I[Retrieval Planner]
-    I --> J[Vector Retrieval]
-    J --> F
-    J --> K[Reranker]
-    K --> L[Context Compressor / Summarizer]
-    L --> M[Answer Composer]
-    M --> N[Self-check & Constraint Validator]
-    N --> O[Final Response + Sources]
+    G --> H[Retrieval Planner]
+    H --> I[Vector Retrieval]
+    I --> F
+    I --> J[Embedding Reranker]
+    J --> K[Final Ranked Hits]
 
     E --> P[Provider Router]
-    H --> P
-    K --> P
-    L --> P
-    M --> P
-    P --> P1[OpenRouter]
-    P --> P2[Gemini]
-    P --> P3[Ollama]
-    P --> P4[llama_cpp_python GGUF]
-    P --> P5[OpenAI-Compatible Endpoint]
-    E --> P6[FastEmbed Fallback]
+    J --> P
+    P --> P1[fastembed ONNX]
+    P --> P2[llama_cpp_python GGUF]
+    P --> P3[openai_compatible API]
 
 ```
 
@@ -676,32 +623,25 @@ graph TD
 
 1. Ingest Layer: normalisasi data, chunking teks/kode, enrichment metadata
 2. Retrieval Storage: Qdrant Cloud URL sebagai vector store utama
-3. Query Intelligence: reasoning planner + retrieval planner + self-check
-4. Relevance Layer: reranker untuk meningkatkan precision context
-5. Synthesis Layer: summarizer/compressor + answer composer grounded
-6. Provider Router: cloud/local/openai-compatible + fallback policy
+3. Query Planner: intent/constraint extraction untuk metadata filter
+4. Relevance Layer: embedding-based reranker untuk meningkatkan precision context
+5. Provider Router: fastembed/local GGUF/openai-compatible endpoint
 
-## Model Embedding & Summarizer
 
 ### Default (Production Recommendation)
 
-* Embedding Provider: `openrouter`
-* Embedding Model: `qwen/qwen3-embedding-8b`
-* Summarizer Provider: `openrouter`
-* Summarizer Model: `openai/gpt-oss-20b:free`
+* Embedding Provider: `fastembed`
+* Embedding Model: `jinaai/jina-embeddings-v2-base-code`
 
 ### Supported Providers
 
-* `openrouter` - Primary untuk embedding + summarizer (recommended)
-* `gemini` - Alternatif untuk embedding + summarizer
-* `ollama` - Opsi local/self-hosted
-* `llama_cpp_python` - Opsi local GGUF untuk embedding/reranker/reasoning
-* `fastembed` - Embedding fallback lokal tanpa API key
+* `fastembed` - Primary embedding lokal (recommended)
+* `llama_cpp_python` - Opsi local GGUF untuk embedding
+* `openai_compatible` - Opsi endpoint yang kompatibel OpenAI API
 
 ### Selection Criteria
 
 * Kualitas embedding untuk kode vs teks
-* Grounding quality pada summarization
 * Biaya per token (cloud services)
 * Latency requirements
 * Privacy dan compliance requirements
@@ -710,8 +650,6 @@ graph TD
 ### Fallback Policy
 
 * Embedding gagal di provider utama -> fallback ke `fastembed`
-* Summarizer/reasoning/reranker timeout/error -> retry ke provider kedua (`gemini`, `ollama`, atau `llama_cpp_python`)
-* Jika semua summarizer gagal -> kirim context retrieval mentah (tanpa summarizer)
 
 ## Struktur Payload Collection
 
@@ -1053,7 +991,6 @@ Dengan implementasi ini, agentRAG akan memiliki fondasi data yang kuat dan scala
 8. Upsert to Qdrant Cloud via URL endpoint (vector + universal payload metadata)
 9. Ensure payload index for `source_id` in Qdrant
 10. Query intake from CLI/Python module/MCP server
-11. Reasoning layer:
    - intent classification (`find_snippet`, `explain_function`, `bug_hunt`, `refactor_guidance`)
    - constraint extraction (language, symbol name, path/module, access scope)
    - retrieval planning (semantic search + metadata filter + keyword fallback)
@@ -1061,13 +998,8 @@ Dengan implementasi ini, agentRAG akan memiliki fondasi data yang kuat dan scala
    - Pass 1 (strict): semantic search + metadata filter (`node_type`, `language`, `symbol_name`, `access_level`)
    - Fallback 1: relax `language`, keep `symbol_name`
    - Fallback 2: relax `symbol_name` + strict filters lain bila masih kosong
-13. Reranking by semantic relevance + lexical overlap
-14. Context compression (top context yang paling informatif)
-15. Summarizer/compressor untuk merapikan konteks terpilih tanpa kehilangan fakta penting
-16. Answer generation grounded by retrieved context + source references
-17. Self-check:
-   - validasi apakah constraint query terpenuhi
-   - retry retrieval sekali dengan filter lebih ketat jika mismatch
+13. Reranking by embedding similarity
+14. Return final ranked hits (`top_k`) as JSON response
 
 ### Workflow Diagram (Ingest Execution)
 
@@ -1098,13 +1030,10 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant API as Query API
-    participant RP as Reasoning Planner
+    participant RP as Retrieval Planner
     participant RET as Retriever
     participant QD as Qdrant Cloud
     participant RR as Reranker
-    participant SZ as Summarizer
-    participant AC as Answer Composer
-    participant SC as Self-check
 
     User->>API: Submit query
     API->>RP: Intent + constraint extraction
@@ -1120,11 +1049,8 @@ sequenceDiagram
         end
     end
     RET->>RR: Send candidates
-    RR-->>SZ: Ranked contexts (top-k)
-    SZ-->>AC: Compressed grounded context
-    AC-->>SC: Draft answer + sources
-    SC-->>API: Constraint validation
-    API-->>User: Final grounded answer
+    RR-->>API: Ranked hits (top-k)
+    API-->>User: JSON response
 ```
 
 ### Ingest Process (Operational)
@@ -1139,16 +1065,14 @@ sequenceDiagram
 8. Vector storage with metadata (Qdrant Cloud URL)
 9. Optional dry-run mode (`agentrag ingest ... --dry-run`) untuk lihat `new/unchanged/stale/skipped` tanpa write
 
-### Query Process (Reasoning + Retrieval)
 
 1. Query preprocessing
 2. Intent + constraint extraction
 3. Retrieval planning
 4. Strict retrieval with metadata filtering (`node_type`, `language`, `symbol_name`, `access_level`)
 5. Fallback retrieval bertahap (relax `language` dulu, lalu `symbol_name`)
-6. Reranking and context compression
-7. Response generation
-8. Constraint compliance check
+6. Embedding-based reranking
+7. JSON response generation
 
 ## Performance Metrics
 
@@ -1159,7 +1083,6 @@ sequenceDiagram
 * Throughput: 50 queries/minute (cloud-based)
 * Memory Usage: <500MB (aplikasi, cloud-based vector storage)
 * Constraint Match Rate: >0.9 (hard constraints seperti language/symbol harus terpenuhi)
-* Grounded Answer Rate: >0.9 (jawaban memiliki referensi konteks yang valid)
 * Delta Re-ingest Write Reduction: >70% pada re-ingest berulang (dibanding full rewrite)
 * Unchanged Chunk Ratio: >60% untuk re-ingest rutin pada source stabil
 * Stale Delete Latency: p95 <500ms per 1.000 stale IDs (source-scoped)
@@ -1174,7 +1097,6 @@ sequenceDiagram
 * Vector database performance
 * Retrieval precision@k
 * Constraint compliance rate
-* Retry rate from self-check stage
 * Ingest counters: `new_chunks`, `unchanged_chunks`, `stale_deleted`, `skipped`
 * Delta efficiency trend: write reduction per re-ingest batch
 * Query fallback metrics: strict-empty rate, fallback stage success rate
@@ -1303,7 +1225,6 @@ Beralih ke `uv` akan meningkatkan pengalaman pengembangan Anda secara drastis, m
 
 ### Tujuan
 
-Konfigurasi MCP ini memungkinkan agent client (VS Code, Codex, KiloCode, dll) terhubung ke server `agentRAG` untuk query context, memory retrieval, dan reasoning workflow.
 
 ### Environment yang Wajib Tersedia
 
@@ -1311,11 +1232,8 @@ Konfigurasi MCP ini memungkinkan agent client (VS Code, Codex, KiloCode, dll) te
 * `QDRANT_API_KEY`
 * `DEFAULT_TOP_K_MEMORY_QUERY`
 * `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`
-* `SUMMARIZER_PROVIDER`, `SUMMARIZER_MODEL`
-* `ENABLE_REASONING`, `REASONING_PROVIDER`, `REASONING_MODEL`, `REASONING_MAX_STEPS`
-* `ENABLE_RERANKER`, `RERANKER_PROVIDER`, `RERANKER_MODEL`, `RERANK_CANDIDATES`, `FINAL_TOP_K`
+* `ENABLE_RERANKER`, `RERANK_CANDIDATES`, `FINAL_TOP_K`
 * `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_API_KEY`
-* `LLAMA_CPP_EMBED_MODEL_PATH`, `LLAMA_CPP_RERANKER_MODEL_PATH`, `LLAMA_CPP_SUMMARIZER_MODEL_PATH`, `LLAMA_CPP_REASONING_MODEL_PATH`
 
 ### VS Code (MCP Servers)
 
@@ -1334,17 +1252,9 @@ Konfigurasi MCP ini memungkinkan agent client (VS Code, Codex, KiloCode, dll) te
         "QDRANT_URL": "https://qdrant.geekscodebase.me",
         "QDRANT_API_KEY": "your_qdrant_api_key_here",
         "DEFAULT_TOP_K_MEMORY_QUERY": "3",
-        "EMBEDDING_PROVIDER": "openrouter",
-        "EMBEDDING_MODEL": "qwen/qwen3-embedding-8b",
-        "SUMMARIZER_PROVIDER": "openrouter",
-        "SUMMARIZER_MODEL": "openai/gpt-oss-20b:free",
-        "ENABLE_REASONING": "true",
-        "REASONING_PROVIDER": "openrouter",
-        "REASONING_MODEL": "openai/gpt-oss-20b:free",
-        "REASONING_MAX_STEPS": "3",
+        "EMBEDDING_PROVIDER": "fastembed",
+        "EMBEDDING_MODEL": "jinaai/jina-embeddings-v2-base-code",
         "ENABLE_RERANKER": "true",
-        "RERANKER_PROVIDER": "fastembed",
-        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
         "RERANK_CANDIDATES": "20",
         "FINAL_TOP_K": "3"
       }
@@ -1411,6 +1321,6 @@ Konfigurasi MCP ini memungkinkan agent client (VS Code, Codex, KiloCode, dll) te
 ### Catatan Operasional
 
 1. Gunakan `.env` untuk menyimpan secret, jangan hardcode API key di config client
-2. Untuk mode lokal penuh, set provider ke `llama_cpp_python` dan isi semua `LLAMA_CPP_*_MODEL_PATH`
-3. Untuk mode cloud, gunakan `openrouter`/`gemini` + `OPENAI_COMPATIBLE_*` jika perlu gateway custom
+2. Untuk mode lokal penuh berbasis GGUF, set provider ke `llama_cpp_python` dan isi `LLAMA_CPP_EMBED_MODEL_PATH`
+3. Untuk default tanpa GGUF, gunakan `fastembed` + `EMBEDDING_MODEL` yang didukung FastEmbed
 4. Pastikan nilai `FINAL_TOP_K` tidak melebihi `RERANK_CANDIDATES`

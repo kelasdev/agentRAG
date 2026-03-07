@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
+from qdrant_client import QdrantClient
 
 from agentrag.config import get_settings
 from agentrag.ingest import ingest_paths
@@ -11,6 +13,104 @@ from agentrag.providers.embeddings import EmbeddingProvider
 from agentrag.qdrant_store import QdrantStore
 
 app = typer.Typer(no_args_is_help=True)
+
+
+def _resolve_qdrant_api_key(url: str, api_key: str) -> str | None:
+    # Ignore api key for local development endpoints.
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return None
+    return api_key or None
+
+
+def _preflight_query_collection(
+    qdrant_url: str,
+    qdrant_api_key: str,
+    collection_name: str,
+    timeout_seconds: float = 2.0,
+) -> None:
+    ok, message, _ = _check_qdrant(
+        qdrant_url=qdrant_url,
+        qdrant_api_key=qdrant_api_key,
+        collection_name=collection_name,
+        timeout_seconds=timeout_seconds,
+        require_collection=True,
+        require_non_empty=True,
+    )
+    if not ok:
+        typer.echo(f"Qdrant preflight failed: {message}", err=True)
+        raise typer.Exit(code=1)
+
+
+def _check_qdrant(
+    qdrant_url: str,
+    qdrant_api_key: str,
+    collection_name: str,
+    timeout_seconds: float = 2.0,
+    require_collection: bool = False,
+    require_non_empty: bool = False,
+) -> tuple[bool, str, int | None]:
+    client = QdrantClient(
+        url=qdrant_url,
+        api_key=_resolve_qdrant_api_key(qdrant_url, qdrant_api_key),
+        timeout=timeout_seconds,
+    )
+    try:
+        collections = client.get_collections().collections
+    except Exception as exc:
+        return (
+            False,
+            f"URL is not reachable within {timeout_seconds:.1f}s at {qdrant_url}. error={exc}",
+            None,
+        )
+
+    names = {c.name for c in collections}
+    if require_collection and collection_name not in names:
+        return False, f"collection '{collection_name}' does not exist.", None
+
+    if require_non_empty:
+        try:
+            count_response = client.count(collection_name=collection_name, exact=False)
+            points_count = int(getattr(count_response, "count", 0) or 0)
+        except Exception as exc:
+            return (
+                False,
+                f"unable to check collection size for '{collection_name}'. error={exc}",
+                None,
+            )
+        if points_count == 0:
+            return False, f"collection '{collection_name}' is empty. Run ingest first.", points_count
+        return True, "ok", points_count
+
+    return True, "ok", None
+
+
+def _build_embedder_or_exit(settings: object) -> EmbeddingProvider:
+    try:
+        return EmbeddingProvider(
+            provider=str(getattr(settings, "embedding_provider", "")),
+            model_name=getattr(settings, "embedding_model", None),
+            model_path=getattr(settings, "llama_cpp_embed_model_path", None),
+            n_threads=int(getattr(settings, "llama_cpp_n_threads", 4)),
+            openai_base_url=getattr(settings, "openai_compatible_base_url", None),
+            openai_api_key=getattr(settings, "openai_compatible_api_key", None),
+            request_timeout_seconds=float(
+                getattr(settings, "embedding_request_timeout_seconds", 30.0)
+            ),
+        )
+    except Exception as exc:
+        typer.echo(
+            "Embedding model preflight failed: "
+            f"provider={getattr(settings, 'embedding_provider', '')} "
+            f"model={getattr(settings, 'embedding_model', '')} "
+            f"path={getattr(settings, 'llama_cpp_embed_model_path', '')} "
+            f"base_url={getattr(settings, 'openai_compatible_base_url', '')}. error={exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command("ingest")
@@ -22,7 +122,19 @@ def ingest_command(
 ) -> None:
     settings = get_settings()
     collection_name = collection or settings.collection_name
-    embedder = EmbeddingProvider()
+    ok, message, _ = _check_qdrant(
+        qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        timeout_seconds=2.0,
+        require_collection=False,
+        require_non_empty=False,
+    )
+    if not ok:
+        typer.echo(f"Qdrant preflight failed: {message}", err=True)
+        raise typer.Exit(code=1)
+
+    embedder = _build_embedder_or_exit(settings)
     store = QdrantStore(
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
@@ -67,11 +179,15 @@ def query_command(
     node_type: str | None = typer.Option(None, help="Filter by node type: text/code"),
     language: str | None = typer.Option(None, help="Filter by code language, e.g. python"),
     access_level: str | None = typer.Option(None, help="Filter by access level"),
-    show_plan: bool = typer.Option(False, help="Show extracted query plan"),
 ) -> None:
     settings = get_settings()
     collection_name = collection or settings.collection_name
-    embedder = EmbeddingProvider()
+    _preflight_query_collection(
+        qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+    )
+    embedder = _build_embedder_or_exit(settings)
     store = QdrantStore(
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
@@ -89,46 +205,209 @@ def query_command(
         access_level=access_level,
     )
     results = result.hits
-
-    if not results:
-        typer.echo("No results found.")
-        raise typer.Exit(0)
-
-    if show_plan:
-        typer.echo(
-            "Plan: "
-            f"intent={result.plan.intent} node_type={result.plan.node_type} "
-            f"language={result.plan.language} access_level={result.plan.access_level} "
-            f"candidate_limit={result.candidate_limit} final_top_k={result.final_top_k} "
-            f"fallback_used={result.fallback_used}"
-        )
-
+    out_hits: list[dict[str, object]] = []
     for i, hit in enumerate(results, start=1):
         payload = hit.payload or {}
-        content = str(payload.get("content", "")).strip().replace("\n", " ")
-        preview = content[:160] + ("..." if len(content) > 160 else "")
-        source_id = payload.get("source_id", "-")
-        hpath = payload.get("hierarchy_path", "-")
-        typer.echo(
-            f"[{i}] score={hit.score:.4f} source={source_id} hierarchy={hpath}\n"
-            f"    {preview}"
+        content = str(payload.get("content", "")).strip()
+        out_hits.append(
+            {
+                "rank": i,
+                "score": float(hit.score),
+                "source_id": payload.get("source_id"),
+                "hierarchy_path": payload.get("hierarchy_path"),
+                "content_preview": content[:160] + ("..." if len(content) > 160 else ""),
+                "payload": payload,
+            }
         )
-    typer.echo("\nCompressed Context:")
-    typer.echo(result.compressed_context)
+
+    response = {
+        "query": q,
+        "plan": {
+            "intent": result.plan.intent,
+            "node_type": result.plan.node_type,
+            "language": result.plan.language,
+            "symbol_name": result.plan.symbol_name,
+            "access_level": result.plan.access_level,
+        },
+        "fallback_used": result.fallback_used,
+        "candidate_limit": result.candidate_limit,
+        "final_top_k": result.final_top_k,
+        "reranker_used": result.reranker_used,
+        "reranker_mode": result.reranker_mode,
+        "hits": out_hits,
+    }
+    typer.echo(json.dumps(response, ensure_ascii=True, indent=2))
 
 
 @app.command("health")
 def health_command(collection: str | None = typer.Option(None, help="Qdrant collection name")) -> None:
     settings = get_settings()
-    embedder = EmbeddingProvider()
-    store = QdrantStore(
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        collection_name=collection or settings.collection_name,
-        vector_size=embedder.dimensions,
+    collection_name = collection or settings.collection_name
+    embedder_ok = True
+    embedder_error = ""
+    try:
+        _ = _build_embedder_or_exit(settings)
+    except typer.Exit:
+        embedder_ok = False
+        embedder_error = "embedding model failed to initialize"
+
+    qdrant_ok, qdrant_message, points_count = _check_qdrant(
+        qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        timeout_seconds=2.0,
+        require_collection=True,
+        require_non_empty=False,
     )
-    ok = store.health_check()
-    typer.echo(f"qdrant_ok={str(ok).lower()} collection={store.collection_name}")
+    payload = {
+        "ok": qdrant_ok and embedder_ok,
+        "qdrant_ok": qdrant_ok,
+        "qdrant_message": qdrant_message,
+        "collection": collection_name,
+        "collection_points": points_count,
+        "embedding_ok": embedder_ok,
+        "embedding_provider": settings.embedding_provider,
+        "embedding_model": settings.embedding_model,
+        "embedding_error": embedder_error,
+    }
+    typer.echo(json.dumps(payload, ensure_ascii=True, indent=2))
+    if not payload["ok"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("env-status")
+def env_status_command() -> None:
+    settings = get_settings()
+    checks: list[dict[str, object]] = []
+    embedding_runtime: dict[str, object] | None = None
+
+    def add_check(
+        name: str,
+        ok: bool,
+        value: object | None = None,
+        fail_error: str | None = None,
+    ) -> None:
+        entry: dict[str, object | None] = {
+            "name": name,
+            "ok": ok,
+            "value": value,
+        }
+        if not ok and fail_error:
+            entry["error"] = fail_error
+        checks.append(entry)
+
+    add_check("QDRANT_URL", bool(settings.qdrant_url.strip()), settings.qdrant_url, "must be non-empty")
+    add_check(
+        "COLLECTION_NAME",
+        bool(settings.collection_name.strip()),
+        settings.collection_name,
+        "must be non-empty",
+    )
+    add_check(
+        "EMBEDDING_PROVIDER",
+        settings.embedding_provider in {"llama_cpp_python", "fastembed", "openai_compatible"},
+        settings.embedding_provider,
+        "must be one of: llama_cpp_python, fastembed, openai_compatible",
+    )
+    add_check(
+        "EMBEDDING_MODEL",
+        bool(str(getattr(settings, "embedding_model", "") or "").strip()),
+        getattr(settings, "embedding_model", ""),
+        "must be non-empty",
+    )
+    if settings.embedding_provider == "llama_cpp_python":
+        embed_path = settings.llama_cpp_embed_model_path or ""
+        add_check(
+            "LLAMA_CPP_EMBED_MODEL_PATH",
+            bool(embed_path) and Path(embed_path).exists(),
+            embed_path,
+            "file must exist",
+        )
+        add_check(
+            "LLAMA_CPP_N_THREADS",
+            settings.llama_cpp_n_threads > 0,
+            settings.llama_cpp_n_threads,
+            "must be > 0",
+        )
+    if settings.embedding_provider == "openai_compatible":
+        base_url = (settings.openai_compatible_base_url or "").strip()
+        add_check(
+            "OPENAI_COMPATIBLE_BASE_URL",
+            bool(base_url),
+            base_url,
+            "must be non-empty for provider=openai_compatible",
+        )
+    add_check(
+        "EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+        float(getattr(settings, "embedding_request_timeout_seconds", 30.0)) > 0.0,
+        getattr(settings, "embedding_request_timeout_seconds", 30.0),
+        "must be > 0",
+    )
+    add_check(
+        "FINAL_TOP_K <= RERANK_CANDIDATES",
+        settings.final_top_k <= settings.rerank_candidates,
+        f"{settings.final_top_k} <= {settings.rerank_candidates}",
+        "must hold to avoid empty rerank window",
+    )
+
+    try:
+        embedder = _build_embedder_or_exit(settings)
+        embedding_runtime = {"provider": settings.embedding_provider}
+        if settings.embedding_provider == "llama_cpp_python":
+            embedding_runtime["model_path"] = getattr(settings, "llama_cpp_embed_model_path", "")
+            embedding_runtime["n_threads"] = int(getattr(settings, "llama_cpp_n_threads", 0))
+        elif settings.embedding_provider == "openai_compatible":
+            embedding_runtime["model"] = getattr(settings, "embedding_model", "")
+            embedding_runtime["base_url"] = getattr(settings, "openai_compatible_base_url", "")
+        else:
+            embedding_runtime["model"] = getattr(settings, "embedding_model", "")
+        embedding_runtime["dimensions"] = int(getattr(embedder, "dimensions", 0) or 0)
+        add_check("EMBEDDING_MODEL_INIT", True, getattr(settings, "embedding_model", ""))
+        add_check(
+            "EMBEDDING_DIMENSIONS",
+            embedding_runtime["dimensions"] > 0,
+            embedding_runtime["dimensions"],
+            "must be > 0",
+        )
+    except typer.Exit:
+        embedding_runtime = {"provider": settings.embedding_provider, "dimensions": 0}
+        if settings.embedding_provider == "llama_cpp_python":
+            embedding_runtime["model_path"] = getattr(settings, "llama_cpp_embed_model_path", "")
+        elif settings.embedding_provider == "openai_compatible":
+            embedding_runtime["model"] = getattr(settings, "embedding_model", "")
+            embedding_runtime["base_url"] = getattr(settings, "openai_compatible_base_url", "")
+        else:
+            embedding_runtime["model"] = getattr(settings, "embedding_model", "")
+        checks.append(
+            {
+                "name": "EMBEDDING_MODEL_INIT",
+                "ok": False,
+                "value": getattr(settings, "embedding_model", ""),
+                "error": "failed to initialize embedding model",
+            }
+        )
+        checks.append(
+            {
+                "name": "EMBEDDING_DIMENSIONS",
+                "ok": False,
+                "value": 0,
+                "error": "unable to detect dimensions",
+            }
+        )
+
+    ok = all(bool(c["ok"]) for c in checks)
+    failed = [c for c in checks if not bool(c["ok"])]
+    payload = {
+        "ok": ok,
+        "embedding_runtime": embedding_runtime,
+        "passed": {str(c.get("name")): c.get("value") for c in checks if bool(c.get("ok"))},
+        "failed": {
+            str(c.get("name")): c.get("error", "check failed")
+            for c in checks
+            if not bool(c.get("ok"))
+        },
+    }
+    typer.echo(json.dumps(payload, ensure_ascii=True, indent=2))
     if not ok:
         raise typer.Exit(code=1)
 

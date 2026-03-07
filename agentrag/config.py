@@ -10,20 +10,23 @@ class Settings(BaseSettings):
     collection_name: str = Field(default="agentrag_memory", alias="COLLECTION_NAME")
     default_top_k_memory_query: int = Field(default=3, alias="DEFAULT_TOP_K_MEMORY_QUERY")
 
-    embedding_provider: str = Field(default="openrouter", alias="EMBEDDING_PROVIDER")
-    embedding_model: str = Field(default="qwen/qwen3-embedding-8b", alias="EMBEDDING_MODEL")
-
-    summarizer_provider: str = Field(default="openrouter", alias="SUMMARIZER_PROVIDER")
-    summarizer_model: str = Field(default="openai/gpt-oss-20b:free", alias="SUMMARIZER_MODEL")
-
-    enable_reasoning: bool = Field(default=True, alias="ENABLE_REASONING")
-    reasoning_provider: str = Field(default="openrouter", alias="REASONING_PROVIDER")
-    reasoning_model: str = Field(default="openai/gpt-oss-20b:free", alias="REASONING_MODEL")
-    reasoning_max_steps: int = Field(default=3, alias="REASONING_MAX_STEPS")
+    embedding_provider: str = Field(default="fastembed", alias="EMBEDDING_PROVIDER")
+    embedding_model: str = Field(
+        default="jinaai/jina-embeddings-v2-base-code", alias="EMBEDDING_MODEL"
+    )
+    llama_cpp_embed_model_path: str | None = Field(default=None, alias="LLAMA_CPP_EMBED_MODEL_PATH")
+    llama_cpp_n_threads: int = Field(default=4, alias="LLAMA_CPP_N_THREADS")
+    openai_compatible_base_url: str | None = Field(
+        default=None, alias="OPENAI_COMPATIBLE_BASE_URL"
+    )
+    openai_compatible_api_key: str | None = Field(
+        default=None, alias="OPENAI_COMPATIBLE_API_KEY"
+    )
+    embedding_request_timeout_seconds: float = Field(
+        default=30.0, alias="EMBEDDING_REQUEST_TIMEOUT_SECONDS"
+    )
 
     enable_reranker: bool = Field(default=True, alias="ENABLE_RERANKER")
-    reranker_provider: str = Field(default="fastembed", alias="RERANKER_PROVIDER")
-    reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
     rerank_candidates: int = Field(default=20, alias="RERANK_CANDIDATES")
     final_top_k: int = Field(default=3, alias="FINAL_TOP_K")
 

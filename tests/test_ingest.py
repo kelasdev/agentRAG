@@ -2,7 +2,6 @@ from pathlib import Path
 from uuid import UUID
 
 from agentrag.ingest import ingest_paths
-from agentrag.providers.embeddings import EmbeddingProvider
 
 
 class FakeStore:
@@ -31,6 +30,15 @@ class FakeStore:
             id_set.difference_update(stale)
 
 
+class FakeEmbedder:
+    def __init__(self, dimensions: int = 8):
+        self.dimensions = dimensions
+
+    def embed(self, text: str):
+        base = float(len(text) % 7)
+        return [base for _ in range(self.dimensions)]
+
+
 def test_ingest_generates_uuid_ids(tmp_path: Path):
     f = tmp_path / "a.md"
     f.write_text("hello world\n\nsecond para", encoding="utf-8")
@@ -38,7 +46,7 @@ def test_ingest_generates_uuid_ids(tmp_path: Path):
     result = ingest_paths(
         paths=[f],
         store=store,  # type: ignore[arg-type]
-        embedder=EmbeddingProvider(dimensions=8),
+        embedder=FakeEmbedder(dimensions=8),  # type: ignore[arg-type]
     )
 
     assert result.nodes_created > 0
@@ -54,7 +62,7 @@ def test_ingest_delta_sync_skips_unchanged_and_deletes_stale(tmp_path: Path):
     f.write_text("alpha\n\nbeta", encoding="utf-8")
 
     store = FakeStore()
-    embedder = EmbeddingProvider(dimensions=8)
+    embedder = FakeEmbedder(dimensions=8)
 
     result_1 = ingest_paths(
         paths=[f],
@@ -97,7 +105,7 @@ def test_ingest_dry_run_no_write(tmp_path: Path):
     result = ingest_paths(
         paths=[f],
         store=store,  # type: ignore[arg-type]
-        embedder=EmbeddingProvider(dimensions=8),
+        embedder=FakeEmbedder(dimensions=8),  # type: ignore[arg-type]
         dry_run=True,
     )
 

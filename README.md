@@ -18,11 +18,7 @@ agentrag ingest PRD.md
 agentrag query "qdrant cloud url" --node-type text --top-k 3
 ```
 
-5. Show extracted plan (intent + constraints):
-
-```bash
-agentrag query "show python function for qdrant upsert" --show-plan
-```
+5. Query result is returned as JSON (MCP-friendly), including detected plan and hits.
 
 6. Check Qdrant connectivity:
 

@@ -13,7 +13,6 @@ from agentrag.providers.embeddings import EmbeddingProvider
 from agentrag.qdrant_store import QdrantStore
 from agentrag.reranker import rerank
 from agentrag.retrieval import retrieve_candidates
-from agentrag.summarizer import summarize_context
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +21,11 @@ logger = logging.getLogger(__name__)
 class QueryPipelineResult:
     plan: QueryPlan
     hits: list[Any]
-    compressed_context: str
     fallback_used: bool
     candidate_limit: int
     final_top_k: int
+    reranker_used: bool = False
+    reranker_mode: str = "disabled"
 
 
 def run_query_pipeline(
@@ -75,9 +75,11 @@ def run_query_pipeline(
         },
     )
 
+    reranker_used = bool(settings.enable_reranker)
+    reranker_mode = "embedding_similarity" if settings.enable_reranker else "disabled"
     if settings.enable_reranker:
         rerank_started = time.perf_counter()
-        hits = rerank(query=query, candidates=hits, top_k=final_top_k)
+        hits = rerank(query=query, candidates=hits, top_k=final_top_k, embedder=embedder)
         _log_query_stage(
             query_id=query_id,
             stage="rerank",
@@ -134,7 +136,7 @@ def run_query_pipeline(
                 break
         if settings.enable_reranker:
             rerank_started = time.perf_counter()
-            hits = rerank(query=query, candidates=hits, top_k=final_top_k)
+            hits = rerank(query=query, candidates=hits, top_k=final_top_k, embedder=embedder)
             _log_query_stage(
                 query_id=query_id,
                 stage="rerank",
@@ -162,7 +164,8 @@ def run_query_pipeline(
     return QueryPipelineResult(
         plan=plan,
         hits=hits,
-        compressed_context=summarize_context(hits) if hits else "",
+        reranker_used=reranker_used,
+        reranker_mode=reranker_mode,
         fallback_used=fallback_used,
         candidate_limit=desired_limit,
         final_top_k=final_top_k,

@@ -1,26 +1,46 @@
 from __future__ import annotations
 
-import re
+import math
 from qdrant_client.models import ScoredPoint
 
-
-TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
-
-
-def rerank(query: str, candidates: list[ScoredPoint], top_k: int) -> list[ScoredPoint]:
-    query_tokens = set(_tokens(query))
-    if not query_tokens:
+def rerank(
+    query: str,
+    candidates: list[ScoredPoint],
+    top_k: int,
+    embedder: object,
+) -> list[ScoredPoint]:
+    if not candidates:
         return candidates[:top_k]
+    query_vec = _embed_text(embedder, query)
 
     def score(hit: ScoredPoint) -> float:
         payload = hit.payload or {}
         content = str(payload.get("content", ""))
-        overlap = len(query_tokens.intersection(_tokens(content)))
-        # Blend lexical overlap and vector score for stable ranking.
-        return (0.3 * float(hit.score)) + (0.7 * overlap)
+        doc_vec = _embed_text(embedder, content)
+        return _cosine_similarity(query_vec, doc_vec)
 
     return sorted(candidates, key=score, reverse=True)[:top_k]
 
 
-def _tokens(text: str) -> set[str]:
-    return {m.group(0).lower() for m in TOKEN_RE.finditer(text)}
+def _embed_text(embedder: object, text: str) -> list[float]:
+    raw = getattr(embedder, "embed")(text)
+    return [float(x) for x in raw]
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    size = min(len(a), len(b))
+    if size == 0:
+        return 0.0
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for i in range(size):
+        x = a[i]
+        y = b[i]
+        dot += x * y
+        norm_a += x * x
+        norm_b += y * y
+    denom = math.sqrt(norm_a) * math.sqrt(norm_b)
+    if denom == 0:
+        return 0.0
+    return dot / denom
