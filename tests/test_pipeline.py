@@ -12,12 +12,21 @@ class FakeStore:
     def __init__(self):
         self.calls = []
 
-    def search(self, query_vector, limit, node_type=None, language=None, access_level=None):
+    def search(
+        self,
+        query_vector,
+        limit,
+        node_type=None,
+        language=None,
+        symbol_name=None,
+        access_level=None,
+    ):
         self.calls.append(
             {
                 "limit": limit,
                 "node_type": node_type,
                 "language": language,
+                "symbol_name": symbol_name,
                 "access_level": access_level,
             }
         )
@@ -48,3 +57,15 @@ def test_pipeline_fallback_relaxes_constraints():
     assert result.fallback_used is True
     assert len(result.hits) == 1
     assert len(store.calls) == 2
+
+
+def test_pipeline_passes_symbol_name_filter():
+    settings = SimpleNamespace(enable_reranker=False, rerank_candidates=20, final_top_k=3)
+    store = FakeStore()
+    run_query_pipeline(
+        query="explain function calculate_roi",
+        settings=settings,  # type: ignore[arg-type]
+        embedder=FakeEmbedder(),  # type: ignore[arg-type]
+        store=store,  # type: ignore[arg-type]
+    )
+    assert store.calls[0]["symbol_name"] == "calculate_roi"

@@ -721,7 +721,7 @@ graph TD
 
 {
 
-  "id": "uuid-atau-hash-unik",
+  "id": "uuid-deterministik-dari-hash(source_id + content_hash)",
 
   "vector": [0.123, -0.456, ...],
 
@@ -733,7 +733,7 @@ graph TD
 
     "content": "Isi teks atau source code di sini...",
 
-    "content_hash": "a1b2c3d4e5f6...", // Untuk mencegah duplikasi saat re-index
+    "content_hash": "a1b2c3d4e5f6...", // Hash isi chunk (deteksi perubahan)
 
     "source_id": "finance-analytics/src/metrics.py", // Pengganti document_id / file_path
 
@@ -819,7 +819,7 @@ graph TD
 
 | `content` | Konten asli | All |
 
-| `content_hash` | Hash untuk deduplikasi | All |
+| `content_hash` | Hash isi chunk untuk deteksi perubahan | All |
 
 | `source_id` | ID sumber (file/repo) | All |
 
@@ -843,7 +843,7 @@ graph TD
 
 3.**Security** - Access control terintegrasi
 
-4.**Performance** - Content hash mencegah duplikasi
+4.**Performance** - Delta re-index minim write/delete yang tidak perlu
 
 5.**Scalability** - Mudah diperluas untuk fitur baru
 
@@ -1039,22 +1039,33 @@ Dengan implementasi ini, agentRAG akan memiliki fondasi data yang kuat dan scala
 2. Data normalization (clean text, remove separators, standardize encoding)
 3. Structure-aware chunking:
    - text: delimiter/section chunking
-   - code: AST-based chunking (FunctionDef/ClassDef/import blocks)
+   - code: AST-based chunking
+     - Python: built-in `ast`
+     - JavaScript/TypeScript/Go/Java: `tree-sitter` (fallback regex parser jika runtime tree-sitter tidak tersedia)
 4. Metadata enrichment per chunk (`source_id`, `chunk_index`, `hierarchy_path`, `access_level`, `content_hash`)
-5. Embedding generation via API-based embedding provider
-6. Upsert to Qdrant Cloud via URL endpoint (vector + universal payload metadata)
-7. Query intake from CLI/Python module/MCP server
-8. Reasoning layer:
+5. Build stable chunk ID: `hash(source_id + content_hash)`
+6. Delta re-ingest reconciliation per `source_id`:
+   - fetch existing point IDs by `source_id`
+   - mark unchanged chunks (ID already exists)
+   - upsert only changed/new chunks
+   - delete only stale chunks (old IDs not present in current source)
+7. Embedding generation for changed/new chunks only
+8. Upsert to Qdrant Cloud via URL endpoint (vector + universal payload metadata)
+9. Ensure payload index for `source_id` in Qdrant
+10. Query intake from CLI/Python module/MCP server
+11. Reasoning layer:
    - intent classification (`find_snippet`, `explain_function`, `bug_hunt`, `refactor_guidance`)
    - constraint extraction (language, symbol name, path/module, access scope)
    - retrieval planning (semantic search + metadata filter + keyword fallback)
-9. Multi-pass retrieval:
-   - Pass 1: broad candidate recall
-   - Pass 2: reranking by semantic relevance + constraint match
-   - Pass 3: context compression (top context yang paling informatif)
-10. Summarizer/compressor untuk merapikan konteks terpilih tanpa kehilangan fakta penting
-11. Answer generation grounded by retrieved context + source references
-12. Self-check:
+12. Multi-pass retrieval:
+   - Pass 1 (strict): semantic search + metadata filter (`node_type`, `language`, `symbol_name`, `access_level`)
+   - Fallback 1: relax `language`, keep `symbol_name`
+   - Fallback 2: relax `symbol_name` + strict filters lain bila masih kosong
+13. Reranking by semantic relevance + lexical overlap
+14. Context compression (top context yang paling informatif)
+15. Summarizer/compressor untuk merapikan konteks terpilih tanpa kehilangan fakta penting
+16. Answer generation grounded by retrieved context + source references
+17. Self-check:
    - validasi apakah constraint query terpenuhi
    - retry retrieval sekali dengan filter lebih ketat jika mismatch
 
@@ -1065,16 +1076,20 @@ sequenceDiagram
     participant SRC as Raw Sources (Docs/Code)
     participant ING as Ingest Pipeline
     participant CH as Chunker (Text/AST)
-    participant MD as Metadata Enricher
-    participant EMB as Embedding Service
+    participant DG as Delta Reconciler
+    participant EMB as Embedding Service (changed/new only)
     participant QD as Qdrant Cloud
 
     SRC->>ING: Submit files/repository content
     ING->>CH: Normalize + detect content type
-    CH-->>MD: Structured chunks
-    MD-->>EMB: Chunks + universal payload metadata
-    EMB-->>QD: Upsert vectors + payload
-    QD-->>ING: Upsert result (success/fail)
+    CH-->>DG: Chunks + content_hash + stable ID
+    DG->>QD: Scroll existing IDs by source_id
+    QD-->>DG: Existing point IDs
+    DG->>DG: Classify unchanged / new / stale
+    DG-->>EMB: New/changed chunks only
+    EMB->>QD: Upsert vectors + payload (delta only)
+    DG->>QD: Delete stale IDs (source-scoped)
+    QD-->>ING: Delta ingest result (new/unchanged/stale)
 ```
 
 ### Workflow Diagram (Query Execution)
@@ -1093,9 +1108,17 @@ sequenceDiagram
 
     User->>API: Submit query
     API->>RP: Intent + constraint extraction
-    RP->>RET: Retrieval plan
-    RET->>QD: Semantic search + metadata filter
-    QD-->>RET: Candidate contexts
+    RP->>RET: Retrieval plan (node_type/language/symbol/access_level)
+    RET->>QD: Pass 1 (strict filter + semantic search)
+    QD-->>RET: Candidates (or empty)
+    alt No candidates
+        RET->>QD: Fallback 1 (relax language, keep symbol)
+        QD-->>RET: Candidates (or empty)
+        alt Still empty
+            RET->>QD: Fallback 2 (relax symbol + strict filters)
+            QD-->>RET: Candidates
+        end
+    end
     RET->>RR: Send candidates
     RR-->>SZ: Ranked contexts (top-k)
     SZ-->>AC: Compressed grounded context
@@ -1109,18 +1132,23 @@ sequenceDiagram
 1. File detection (text/code)
 2. Chunking strategy selection
 3. Clean text processing (remove separators)
-4. Embedding generation
-5. Vector storage with metadata (Qdrant Cloud URL)
+4. Generate `content_hash` per chunk + stable chunk ID (`hash(source_id + content_hash)`)
+5. Compare with existing IDs by `source_id` (delta reconciliation)
+6. Upsert changed/new chunks only
+7. Delete stale chunks only (per `source_id`, bukan delete massal koleksi)
+8. Vector storage with metadata (Qdrant Cloud URL)
+9. Optional dry-run mode (`agentrag ingest ... --dry-run`) untuk lihat `new/unchanged/stale/skipped` tanpa write
 
 ### Query Process (Reasoning + Retrieval)
 
 1. Query preprocessing
 2. Intent + constraint extraction
 3. Retrieval planning
-4. Vector similarity search + metadata filtering
-5. Reranking and context compression
-6. Response generation
-7. Constraint compliance check
+4. Strict retrieval with metadata filtering (`node_type`, `language`, `symbol_name`, `access_level`)
+5. Fallback retrieval bertahap (relax `language` dulu, lalu `symbol_name`)
+6. Reranking and context compression
+7. Response generation
+8. Constraint compliance check
 
 ## Performance Metrics
 
@@ -1132,6 +1160,11 @@ sequenceDiagram
 * Memory Usage: <500MB (aplikasi, cloud-based vector storage)
 * Constraint Match Rate: >0.9 (hard constraints seperti language/symbol harus terpenuhi)
 * Grounded Answer Rate: >0.9 (jawaban memiliki referensi konteks yang valid)
+* Delta Re-ingest Write Reduction: >70% pada re-ingest berulang (dibanding full rewrite)
+* Unchanged Chunk Ratio: >60% untuk re-ingest rutin pada source stabil
+* Stale Delete Latency: p95 <500ms per 1.000 stale IDs (source-scoped)
+* Source Re-ingest Duration: p95 <3s per file ukuran menengah (<5MB)
+* Fallback Hit Recovery: >50% query strict-empty berhasil dapat kandidat setelah fallback bertahap
 
 ### Monitoring
 
@@ -1142,6 +1175,9 @@ sequenceDiagram
 * Retrieval precision@k
 * Constraint compliance rate
 * Retry rate from self-check stage
+* Ingest counters: `new_chunks`, `unchanged_chunks`, `stale_deleted`, `skipped`
+* Delta efficiency trend: write reduction per re-ingest batch
+* Query fallback metrics: strict-empty rate, fallback stage success rate
 
 ## Resource Optimization
 

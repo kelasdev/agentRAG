@@ -110,6 +110,7 @@ class QdrantStore:
         limit: int = 3,
         node_type: str | None = None,
         language: str | None = None,
+        symbol_name: str | None = None,
         access_level: str | None = None,
     ) -> list[ScoredPoint]:
         conditions: list[FieldCondition] = []
@@ -118,6 +119,10 @@ class QdrantStore:
         if language:
             conditions.append(
                 FieldCondition(key="code_metadata.language", match=MatchValue(value=language))
+            )
+        if symbol_name:
+            conditions.append(
+                FieldCondition(key="code_metadata.symbol_name", match=MatchValue(value=symbol_name))
             )
         if access_level:
             conditions.append(FieldCondition(key="access_level", match=MatchValue(value=access_level)))

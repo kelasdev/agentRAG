@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,6 +26,8 @@ CODE_EXTS = {
     ".c": "c",
     ".rs": "rust",
 }
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -84,6 +89,7 @@ def ingest_paths(
     store.ensure_collection()
 
     for path in valid_paths:
+        started_at = time.perf_counter()
         source_id = str(path.resolve())
         content = _read_file(path)
         if not content.strip():
@@ -177,6 +183,24 @@ def ingest_paths(
         if nodes_to_upsert and not dry_run:
             store.upsert(nodes_to_upsert)
             nodes_created += len(nodes_to_upsert)
+
+        unchanged_count = len(current_ids.intersection(existing_ids))
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ingest_summary",
+                    "source_id": source_id,
+                    "new_chunks": len(nodes_to_upsert),
+                    "unchanged_chunks": unchanged_count,
+                    "stale_deleted": len(stale_ids),
+                    "skipped": 0,
+                    "duration_ms": duration_ms,
+                    "dry_run": dry_run,
+                },
+                ensure_ascii=True,
+            )
+        )
 
     return IngestResult(
         nodes_created=nodes_created,

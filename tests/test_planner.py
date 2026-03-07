@@ -12,3 +12,8 @@ def test_query_plan_extracts_code_python_intent():
 def test_query_plan_extracts_symbol():
     plan = build_query_plan("explain this symbol:calculate_roi in docs")
     assert plan.symbol_name == "calculate_roi"
+
+
+def test_query_plan_extracts_symbol_from_natural_phrase():
+    plan = build_query_plan("please explain function calculate_roi in python")
+    assert plan.symbol_name == "calculate_roi"

@@ -65,7 +65,12 @@ def build_query_plan(query: str) -> QueryPlan:
 
 def _extract_symbol_name(query: str) -> str | None:
     if "symbol:" in query:
-        return query.split("symbol:", 1)[1].strip().split()[0]
+        value = query.split("symbol:", 1)[1].strip().split()[0]
+        return value.strip("`'\".,:;()[]{}")
+    # Support natural query forms: "function foo", "class Bar", "method baz"
+    m = re.search(r"\b(?:function|class|method|symbol)\s+([A-Za-z_][\w]*)\b", query)
+    if m:
+        return m.group(1)
     return None
 
 

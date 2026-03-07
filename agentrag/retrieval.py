@@ -28,6 +28,7 @@ def retrieve_candidates(
         limit=limit,
         node_type=plan.node_type,
         language=plan.language,
+        symbol_name=plan.symbol_name,
         access_level=plan.access_level,
     )
     return RetrievalResult(candidates=candidates, plan=plan)
