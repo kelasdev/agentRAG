@@ -549,10 +549,7 @@ DEFAULT_TOP_K_MEMORY_QUERY=3
 EMBEDDING_PROVIDER=fastembed
 EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-code
 
-# Reranker Configuration
-# Reranker uses embedding strategy from EMBEDDING_PROVIDER
-ENABLE_RERANKER=true
-RERANK_CANDIDATES=20
+# Retrieval Configuration
 FINAL_TOP_K=3
 
 # llama-cpp-python Local GGUF Paths (Optional)
@@ -563,6 +560,10 @@ LLAMA_CPP_N_THREADS=4
 OPENAI_COMPATIBLE_BASE_URL=
 OPENAI_COMPATIBLE_API_KEY=
 EMBEDDING_REQUEST_TIMEOUT_SECONDS=30
+
+# Web URL Ingest (Jina Reader)
+JINA_READER_BASE_URL=https://r.jina.ai/
+WEB_FETCH_TIMEOUT_SECONDS=45
 
 ```
 
@@ -588,7 +589,7 @@ Model tetap dikontrol dari `EMBEDDING_MODEL`
 1. Primary provider: `fastembed` untuk embedding
 2. Alternatif lokal: `llama_cpp_python` dengan model GGUF embedding
 3. Alternatif service endpoint: `openai_compatible`
-4. Reranking aktif saat `ENABLE_RERANKER=true`, kandidat awal `RERANK_CANDIDATES`, output akhir `FINAL_TOP_K`
+4. Output akhir retrieval dikontrol oleh `FINAL_TOP_K`
 
 ### Arsitektur
 
@@ -596,7 +597,10 @@ Model tetap dikontrol dari `EMBEDDING_MODEL`
 
 graph TD
 
-    A[Raw Data Sources: Docs + Code] --> B[Ingest Pipeline]
+    A[Raw Data Sources: Local Docs + Code] --> B[Ingest Pipeline]
+    W[Web URLs] --> JR[Jina Reader]
+    JR --> S[Web Content Sanitizer]
+    S --> B
     B --> C[Structure-aware Chunking]
     C --> D[Metadata Enrichment]
     D --> E[Embedding Service]
@@ -606,11 +610,9 @@ graph TD
     G --> H[Retrieval Planner]
     H --> I[Vector Retrieval]
     I --> F
-    I --> J[Embedding Reranker]
-    J --> K[Final Ranked Hits]
+    I --> K[Final Ranked Hits]
 
     E --> P[Provider Router]
-    J --> P
     P --> P1[fastembed ONNX]
     P --> P2[llama_cpp_python GGUF]
     P --> P3[openai_compatible API]
@@ -619,11 +621,10 @@ graph TD
 
 ### Arsitektur Komponen (Ringkas)
 
-1. Ingest Layer: normalisasi data, chunking teks/kode, enrichment metadata
+1. Ingest Layer: local file ingest + URL ingest (Jina Reader) + sanitasi konten web + chunking teks/kode + enrichment metadata
 2. Retrieval Storage: Qdrant Cloud URL sebagai vector store utama
 3. Query Planner: intent/constraint extraction untuk metadata filter
-4. Relevance Layer: embedding-based reranker untuk meningkatkan precision context
-5. Provider Router: fastembed/local GGUF/openai-compatible endpoint
+4. Provider Router: fastembed/local GGUF/openai-compatible endpoint
 
 
 ### Default (Production Recommendation)
@@ -659,6 +660,28 @@ Sebelum proses utama berjalan, CLI melakukan preflight:
 * `ingest`: cek koneksi Qdrant, inisialisasi embedding, dan jika collection sudah ada maka dimensi harus sesuai. Jika collection belum ada, collection dibuat mengikuti dimensi model aktif.
 
 Jika dimensi tidak cocok, proses dihentikan sebelum retrieval/ingest berjalan.
+
+### URL Ingest (Jina Reader)
+
+`agentrag ingest` menerima target campuran:
+
+* path file lokal
+* direktori lokal (rekursif)
+* URL `http(s)` (single atau multi)
+
+Untuk target URL:
+
+1. Konten diambil melalui `JINA_READER_BASE_URL + <url_target>`
+2. Konten disanitasi (header/footer/menu/separator/simbol-emoji noise)
+3. Konten bersih di-chunk sebagai node teks
+4. `source_id` diset ke URL asli agar delta-sync tetap stabil
+
+Contoh:
+
+```bash
+agentrag ingest "https://example.com/a.pdf" "https://example.com/b.md"
+agentrag ingest ./docs "https://example.com/spec" --dry-run
+```
 
 ### Error Response Format (JSON)
 
@@ -1016,24 +1039,25 @@ Dengan implementasi ini, agentRAG akan memiliki fondasi data yang kuat dan scala
 
 ### End-to-End Workflow (Raw Data -> Qdrant -> Answer)
 
-1. Raw data ingestion (text documents + source code files)
-2. Data normalization (clean text, remove separators, standardize encoding)
-3. Structure-aware chunking:
+1. Raw data ingestion (local text/code + web URLs, termasuk multi-URL)
+2. URL path: fetch via Jina Reader + sanitization (header/footer/menu/separator/emoji noise removal)
+3. Data normalization (clean text, remove separators, standardize encoding)
+4. Structure-aware chunking:
    - text: delimiter/section chunking
    - code: AST-based chunking
      - Python: built-in `ast`
      - JavaScript/TypeScript/Go/Java: `tree-sitter` (fallback regex parser jika runtime tree-sitter tidak tersedia)
-4. Metadata enrichment per chunk (`source_id`, `chunk_index`, `hierarchy_path`, `access_level`, `content_hash`)
-5. Build stable chunk ID: `hash(source_id + content_hash)`
-6. Delta re-ingest reconciliation per `source_id`:
+5. Metadata enrichment per chunk (`source_id`, `chunk_index`, `hierarchy_path`, `access_level`, `content_hash`)
+6. Build stable chunk ID: `hash(source_id + content_hash)`
+7. Delta re-ingest reconciliation per `source_id`:
    - fetch existing point IDs by `source_id`
    - mark unchanged chunks (ID already exists)
    - upsert only changed/new chunks
    - delete only stale chunks (old IDs not present in current source)
-7. Embedding generation for changed/new chunks only
-8. Upsert to Qdrant Cloud via URL endpoint (vector + universal payload metadata)
-9. Ensure payload index for `source_id` in Qdrant
-10. Query intake from CLI/Python module/MCP server
+8. Embedding generation for changed/new chunks only
+9. Upsert to Qdrant Cloud via URL endpoint (vector + universal payload metadata)
+10. Ensure payload index for `source_id` in Qdrant
+11. Query intake from CLI/Python module/MCP server
    - intent classification (`find_snippet`, `explain_function`, `bug_hunt`, `refactor_guidance`)
    - constraint extraction (language, symbol name, path/module, access scope)
    - retrieval planning (semantic search + metadata filter + keyword fallback)
@@ -1041,14 +1065,16 @@ Dengan implementasi ini, agentRAG akan memiliki fondasi data yang kuat dan scala
    - Pass 1 (strict): semantic search + metadata filter (`node_type`, `language`, `symbol_name`, `access_level`)
    - Fallback 1: relax `language`, keep `symbol_name`
    - Fallback 2: relax `symbol_name` + strict filters lain bila masih kosong
-13. Reranking by embedding similarity
-14. Return final ranked hits (`top_k`) as JSON response
+13. Return final top-k hits as JSON response
 
 ### Workflow Diagram (Ingest Execution)
 
 ```mermaid
 sequenceDiagram
-    participant SRC as Raw Sources (Docs/Code)
+    participant SRC as Local Sources (Docs/Code)
+    participant URL as Web URL Targets
+    participant JR as Jina Reader
+    participant SAN as Sanitizer
     participant ING as Ingest Pipeline
     participant CH as Chunker (Text/AST)
     participant DG as Delta Reconciler
@@ -1056,6 +1082,9 @@ sequenceDiagram
     participant QD as Qdrant Cloud
 
     SRC->>ING: Submit files/repository content
+    URL->>JR: Fetch URL content (single/multi)
+    JR-->>SAN: Extracted web text
+    SAN-->>ING: Cleaned content
     ING->>CH: Normalize + detect content type
     CH-->>DG: Chunks + content_hash + stable ID
     DG->>QD: Scroll existing IDs by source_id
@@ -1076,7 +1105,6 @@ sequenceDiagram
     participant RP as Retrieval Planner
     participant RET as Retriever
     participant QD as Qdrant Cloud
-    participant RR as Reranker
 
     User->>API: Submit query
     API->>RP: Intent + constraint extraction
@@ -1087,12 +1115,11 @@ sequenceDiagram
         RET->>QD: Fallback 1 (relax language, keep symbol)
         QD-->>RET: Candidates (or empty)
         alt Still empty
-            RET->>QD: Fallback 2 (relax symbol + strict filters)
+            RET->>QD: Fallback 2 (relax symbol, keep user filters if provided)
             QD-->>RET: Candidates
         end
     end
-    RET->>RR: Send candidates
-    RR-->>API: Ranked hits (top-k)
+    RET-->>API: Final hits (top-k)
     API-->>User: JSON response
 ```
 
@@ -1114,7 +1141,7 @@ sequenceDiagram
 3. Retrieval planning
 4. Strict retrieval with metadata filtering (`node_type`, `language`, `symbol_name`, `access_level`)
 5. Fallback retrieval bertahap (relax `language` dulu, lalu `symbol_name`)
-6. Embedding-based reranking
+6. Final top-k selection
 7. JSON response generation
 
 ## Performance Metrics
@@ -1275,7 +1302,7 @@ Beralih ke `uv` akan meningkatkan pengalaman pengembangan Anda secara drastis, m
 * `QDRANT_API_KEY`
 * `DEFAULT_TOP_K_MEMORY_QUERY`
 * `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`
-* `ENABLE_RERANKER`, `RERANK_CANDIDATES`, `FINAL_TOP_K`
+* `FINAL_TOP_K`
 * `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_API_KEY`
 
 ### VS Code (MCP Servers)
@@ -1297,8 +1324,6 @@ Beralih ke `uv` akan meningkatkan pengalaman pengembangan Anda secara drastis, m
         "DEFAULT_TOP_K_MEMORY_QUERY": "3",
         "EMBEDDING_PROVIDER": "fastembed",
         "EMBEDDING_MODEL": "jinaai/jina-embeddings-v2-base-code",
-        "ENABLE_RERANKER": "true",
-        "RERANK_CANDIDATES": "20",
         "FINAL_TOP_K": "3"
       }
     }
@@ -1366,4 +1391,4 @@ Beralih ke `uv` akan meningkatkan pengalaman pengembangan Anda secara drastis, m
 1. Gunakan `.env` untuk menyimpan secret, jangan hardcode API key di config client
 2. Untuk mode lokal penuh berbasis GGUF, set provider ke `llama_cpp_python` dan isi `LLAMA_CPP_EMBED_MODEL_PATH`
 3. Untuk default tanpa GGUF, gunakan `fastembed` + `EMBEDDING_MODEL` yang didukung FastEmbed
-4. Pastikan nilai `FINAL_TOP_K` tidak melebihi `RERANK_CANDIDATES`
+4. Atur `FINAL_TOP_K` sesuai jumlah hasil yang ingin ditampilkan

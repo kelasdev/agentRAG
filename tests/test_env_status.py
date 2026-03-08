@@ -22,7 +22,6 @@ def test_env_status_ok(monkeypatch):
             llama_cpp_embed_model_path="/home/kelasdev/models/nomic-embed-text-v2-moe.Q4_K_M.gguf",
             llama_cpp_n_threads=4,
             final_top_k=3,
-            rerank_candidates=20,
         ),
     )
     monkeypatch.setattr(cli, "_build_embedder_or_exit", lambda settings: _DummyEmbedder())

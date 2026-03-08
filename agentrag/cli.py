@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
 import typer
 from qdrant_client import QdrantClient
 
 from agentrag.config import get_settings
-from agentrag.ingest import ingest_paths
+from agentrag.ingest import IngestResult, ingest_paths, ingest_urls
 from agentrag.pipeline import run_query_pipeline
 from agentrag.providers.embeddings import EmbeddingProvider
 from agentrag.qdrant_store import QdrantStore
@@ -233,7 +234,7 @@ def _raise_friendly_dimension_error(collection_name: str, exc: Exception, code: 
 
 @app.command("ingest")
 def ingest_command(
-    path: list[Path] = typer.Argument(..., exists=False),
+    target: list[str] = typer.Argument(..., help="Path/dir or URL (http/https)"),
     collection: str | None = typer.Option(None, help="Qdrant collection name"),
     access_level: str = typer.Option("internal", help="public/internal/admin"),
     dry_run: bool = typer.Option(False, help="Compute ingest delta without writing to Qdrant"),
@@ -279,19 +280,42 @@ def ingest_command(
     )
 
     files: list[Path] = []
-    for p in path:
+    urls: list[str] = []
+    for raw in target:
+        value = (raw or "").strip()
+        parsed = urlparse(value)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            urls.append(value)
+            continue
+        p = Path(value)
         if p.is_dir():
             files.extend(x for x in p.rglob("*") if x.is_file())
         else:
             files.append(p)
 
     try:
-        result = ingest_paths(
+        files_result = ingest_paths(
             files,
             store=store,
             embedder=embedder,
             access_level=access_level,
             dry_run=dry_run,
+        )
+        urls_result = ingest_urls(
+            urls,
+            store=store,
+            embedder=embedder,
+            access_level=access_level,
+            dry_run=dry_run,
+            jina_reader_base_url=str(getattr(settings, "jina_reader_base_url", "https://r.jina.ai/")),
+            request_timeout_seconds=float(getattr(settings, "web_fetch_timeout_seconds", 45.0)),
+        )
+        result = IngestResult(
+            nodes_created=files_result.nodes_created + urls_result.nodes_created,
+            skipped=files_result.skipped + urls_result.skipped,
+            new_chunks=files_result.new_chunks + urls_result.new_chunks,
+            unchanged_chunks=files_result.unchanged_chunks + urls_result.unchanged_chunks,
+            stale_deleted=files_result.stale_deleted + urls_result.stale_deleted,
         )
     except Exception as exc:
         _raise_friendly_dimension_error(collection_name, exc, code="INGEST_RUNTIME_FAILED")
@@ -389,8 +413,6 @@ def query_command(
         "fallback_used": result.fallback_used,
         "candidate_limit": result.candidate_limit,
         "final_top_k": result.final_top_k,
-        "reranker_used": result.reranker_used,
-        "reranker_mode": result.reranker_mode,
         "hits": out_hits,
     }
     typer.echo(json.dumps(response, ensure_ascii=True, indent=2))
@@ -501,18 +523,23 @@ def env_status_command() -> None:
         "must be > 0",
     )
     add_check(
+        "JINA_READER_BASE_URL",
+        bool(str(getattr(settings, "jina_reader_base_url", "https://r.jina.ai/")).strip()),
+        getattr(settings, "jina_reader_base_url", "https://r.jina.ai/"),
+        "must be non-empty",
+    )
+    add_check(
+        "WEB_FETCH_TIMEOUT_SECONDS",
+        float(getattr(settings, "web_fetch_timeout_seconds", 45.0)) > 0.0,
+        getattr(settings, "web_fetch_timeout_seconds", 45.0),
+        "must be > 0",
+    )
+    add_check(
         "ENABLE_DIMENSION_PREFLIGHT",
         isinstance(getattr(settings, "enable_dimension_preflight", True), bool),
         getattr(settings, "enable_dimension_preflight", True),
         "must be boolean",
     )
-    add_check(
-        "FINAL_TOP_K <= RERANK_CANDIDATES",
-        settings.final_top_k <= settings.rerank_candidates,
-        f"{settings.final_top_k} <= {settings.rerank_candidates}",
-        "must hold to avoid empty rerank window",
-    )
-
     try:
         embedder = _build_embedder_or_exit(settings)
         embedding_runtime = {"provider": settings.embedding_provider}

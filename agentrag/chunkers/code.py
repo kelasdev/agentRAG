@@ -22,8 +22,26 @@ class CodeChunk:
     docstring: str | None
 
 
+def _full_code_chunk(code: str) -> list[CodeChunk]:
+    return [
+        CodeChunk(
+            content=code,
+            ast_type=None,
+            symbol_name=None,
+            line_start=None,
+            line_end=None,
+            parameters=None,
+            calls=None,
+            docstring=None,
+        )
+    ]
+
+
 def _chunk_python(code: str) -> list[CodeChunk]:
-    module = ast.parse(code)
+    try:
+        module = ast.parse(code)
+    except SyntaxError:
+        return _full_code_chunk(code)
     lines = code.splitlines()
     chunks: list[CodeChunk] = []
 
@@ -67,18 +85,7 @@ def _chunk_python(code: str) -> list[CodeChunk]:
         )
 
     if not chunks:
-        return [
-            CodeChunk(
-                content=code,
-                ast_type=None,
-                symbol_name=None,
-                line_start=None,
-                line_end=None,
-                parameters=None,
-                calls=None,
-                docstring=None,
-            )
-        ]
+        return _full_code_chunk(code)
     return chunks
 
 
@@ -251,6 +258,29 @@ def _chunk_cstyle_fallback(code: str, language: str) -> list[CodeChunk]:
                 "brace",
             ),
         ]
+    elif language in {"c", "cpp"}:
+        rules = [
+            (re.compile(r"^\s*#\s*include\b"), "ImportDeclaration", None),
+            (
+                re.compile(
+                    r"^\s*(?:template\s*<[^>]+>\s*)?(?:[\w:\*\&<>\[\]\s]+)\s+([A-Za-z_]\w*)\s*\([^;]*\)\s*\{"
+                ),
+                "FunctionDeclaration",
+                "brace",
+            ),
+            (
+                re.compile(r"^\s*(?:class|struct)\s+([A-Za-z_]\w*)\b"),
+                "TypeDeclaration",
+                "brace",
+            ),
+        ]
+    elif language == "rust":
+        rules = [
+            (re.compile(r"^\s*use\b"), "ImportDeclaration", None),
+            (re.compile(r"^\s*fn\s+([A-Za-z_]\w*)\s*\("), "FunctionDeclaration", "brace"),
+            (re.compile(r"^\s*(?:struct|enum|trait)\s+([A-Za-z_]\w*)\b"), "TypeDeclaration", "brace"),
+            (re.compile(r"^\s*impl(?:\s*<[^>]+>)?\s+([A-Za-z_]\w*)\b"), "ImplBlock", "brace"),
+        ]
     else:
         rules = []
 
@@ -286,37 +316,15 @@ def _chunk_cstyle_fallback(code: str, language: str) -> list[CodeChunk]:
     if chunks:
         return chunks
 
-    return [
-        CodeChunk(
-            content=code,
-            ast_type=None,
-            symbol_name=None,
-            line_start=None,
-            line_end=None,
-            parameters=None,
-            calls=None,
-            docstring=None,
-        )
-    ]
+    return _full_code_chunk(code)
 
 
 def chunk_code(content: str, language: str) -> list[CodeChunk]:
     if language == "python":
         return _chunk_python(content)
-    if language in {"javascript", "typescript", "go", "java"}:
+    if language in {"javascript", "typescript", "go", "java", "c", "cpp", "rust"}:
         ts_chunks = _chunk_tree_sitter(content, language)
         if ts_chunks is not None:
             return ts_chunks
         return _chunk_cstyle_fallback(content, language)
-    return [
-        CodeChunk(
-            content=content,
-            ast_type=None,
-            symbol_name=None,
-            line_start=None,
-            line_end=None,
-            parameters=None,
-            calls=None,
-            docstring=None,
-        )
-    ]
+    return _full_code_chunk(content)

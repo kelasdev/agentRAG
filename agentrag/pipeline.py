@@ -11,7 +11,6 @@ from agentrag.config import Settings
 from agentrag.planner import QueryPlan, build_query_plan
 from agentrag.providers.embeddings import EmbeddingProvider
 from agentrag.qdrant_store import QdrantStore
-from agentrag.reranker import rerank
 from agentrag.retrieval import retrieve_candidates
 
 logger = logging.getLogger(__name__)
@@ -24,8 +23,6 @@ class QueryPipelineResult:
     fallback_used: bool
     candidate_limit: int
     final_top_k: int
-    reranker_used: bool = False
-    reranker_mode: str = "disabled"
 
 
 def run_query_pipeline(
@@ -48,8 +45,7 @@ def run_query_pipeline(
         symbol_name=extracted_plan.symbol_name,
         access_level=access_level or extracted_plan.access_level,
     )
-    candidate_limit = settings.rerank_candidates if settings.enable_reranker else final_top_k
-    desired_limit = max(candidate_limit, final_top_k)
+    desired_limit = final_top_k
 
     strict_started = time.perf_counter()
     retrieval = retrieve_candidates(
@@ -75,20 +71,7 @@ def run_query_pipeline(
         },
     )
 
-    reranker_used = bool(settings.enable_reranker)
-    reranker_mode = "embedding_similarity" if settings.enable_reranker else "disabled"
-    if settings.enable_reranker:
-        rerank_started = time.perf_counter()
-        hits = rerank(query=query, candidates=hits, top_k=final_top_k, embedder=embedder)
-        _log_query_stage(
-            query_id=query_id,
-            stage="rerank",
-            candidate_count=len(hits),
-            duration_ms=round((time.perf_counter() - rerank_started) * 1000, 2),
-            filters={"top_k": final_top_k},
-        )
-    else:
-        hits = hits[:final_top_k]
+    hits = hits[:final_top_k]
 
     if not hits:
         fallback_used = True
@@ -134,18 +117,7 @@ def run_query_pipeline(
             if hits:
                 fallback_stage_hit = stage_name
                 break
-        if settings.enable_reranker:
-            rerank_started = time.perf_counter()
-            hits = rerank(query=query, candidates=hits, top_k=final_top_k, embedder=embedder)
-            _log_query_stage(
-                query_id=query_id,
-                stage="rerank",
-                candidate_count=len(hits),
-                duration_ms=round((time.perf_counter() - rerank_started) * 1000, 2),
-                filters={"top_k": final_top_k},
-            )
-        else:
-            hits = hits[:final_top_k]
+        hits = hits[:final_top_k]
 
     constraint_match = _constraints_match(plan, hits)
     logger.info(
@@ -164,8 +136,6 @@ def run_query_pipeline(
     return QueryPipelineResult(
         plan=plan,
         hits=hits,
-        reranker_used=reranker_used,
-        reranker_mode=reranker_mode,
         fallback_used=fallback_used,
         candidate_limit=desired_limit,
         final_top_k=final_top_k,

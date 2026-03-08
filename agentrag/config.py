@@ -26,9 +26,9 @@ class Settings(BaseSettings):
         default=30.0, alias="EMBEDDING_REQUEST_TIMEOUT_SECONDS"
     )
     enable_dimension_preflight: bool = Field(default=True, alias="ENABLE_DIMENSION_PREFLIGHT")
+    jina_reader_base_url: str = Field(default="https://r.jina.ai/", alias="JINA_READER_BASE_URL")
+    web_fetch_timeout_seconds: float = Field(default=45.0, alias="WEB_FETCH_TIMEOUT_SECONDS")
 
-    enable_reranker: bool = Field(default=True, alias="ENABLE_RERANKER")
-    rerank_candidates: int = Field(default=20, alias="RERANK_CANDIDATES")
     final_top_k: int = Field(default=3, alias="FINAL_TOP_K")
 
 

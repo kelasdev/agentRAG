@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 import agentrag.cli as cli
+from agentrag.ingest import IngestResult
 from agentrag.pipeline import QueryPipelineResult
 from agentrag.planner import QueryPlan
 
@@ -225,3 +226,45 @@ def test_query_handles_qdrant_dimension_error_with_friendly_message(monkeypatch)
     err = json.loads(res.stderr)
     assert err["error"]["code"] == "VECTOR_DIMENSION_MISMATCH"
     assert err["error"]["details"]["collection"] == "agentrag_memory"
+
+
+def test_ingest_command_accepts_url_and_merges_results(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: SimpleNamespace(
+            qdrant_url="http://localhost:6333",
+            qdrant_api_key="",
+            collection_name="agentrag_memory",
+            embedding_provider="llama_cpp_python",
+            embedding_model="dummy",
+            llama_cpp_embed_model_path=None,
+            llama_cpp_n_threads=4,
+            enable_dimension_preflight=False,
+            jina_reader_base_url="https://r.jina.ai/",
+            web_fetch_timeout_seconds=45.0,
+        ),
+    )
+    monkeypatch.setattr(cli, "_check_qdrant", lambda **kwargs: (True, "ok", 0))
+    monkeypatch.setattr(cli, "EmbeddingProvider", _DummyEmbedder)
+    monkeypatch.setattr(cli, "QdrantStore", _DummyStore)
+    monkeypatch.setattr(
+        cli,
+        "ingest_paths",
+        lambda *args, **kwargs: IngestResult(
+            nodes_created=1, skipped=0, new_chunks=1, unchanged_chunks=0, stale_deleted=0
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "ingest_urls",
+        lambda *args, **kwargs: IngestResult(
+            nodes_created=2, skipped=0, new_chunks=2, unchanged_chunks=0, stale_deleted=0
+        ),
+    )
+
+    res = runner.invoke(cli.app, ["ingest", "https://example.com/doc.pdf"])
+    assert res.exit_code == 0
+    assert "nodes_created=3" in res.stdout
+    assert "new_chunks=3" in res.stdout

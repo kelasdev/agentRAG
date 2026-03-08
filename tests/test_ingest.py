@@ -1,7 +1,7 @@
 from pathlib import Path
 from uuid import UUID
 
-from agentrag.ingest import ingest_paths
+from agentrag.ingest import ingest_paths, ingest_urls, sanitize_web_content
 
 
 class FakeStore:
@@ -113,3 +113,42 @@ def test_ingest_dry_run_no_write(tmp_path: Path):
     assert result.nodes_created == 0
     assert store.upserted == []
     assert store.deleted_ids == []
+
+
+def test_sanitize_web_content_removes_navigation_and_symbols():
+    raw = """
+    Home | Docs | Login
+    ==========
+    # Title
+    Useful content here.
+    🚀✨
+    All rights reserved
+    """
+    cleaned = sanitize_web_content(raw)
+    assert "Home | Docs | Login" not in cleaned
+    assert "All rights reserved" not in cleaned
+    assert "🚀" not in cleaned
+    assert "Useful content here." in cleaned
+
+
+def test_ingest_urls_via_jina_fetch(monkeypatch):
+    store = FakeStore()
+    embedder = FakeEmbedder(dimensions=8)
+    sample = """
+    Menu | Contact | Privacy
+    # API Guide
+    Main explanation paragraph.
+    """
+
+    monkeypatch.setattr("agentrag.ingest._fetch_web_content_via_jina", lambda *args, **kwargs: sample)
+    result = ingest_urls(
+        urls=["https://example.com/guide.pdf"],
+        store=store,  # type: ignore[arg-type]
+        embedder=embedder,  # type: ignore[arg-type]
+    )
+
+    assert result.nodes_created > 0
+    assert result.skipped == 0
+    assert store.collection_ready is True
+    assert any(node.payload.source_id == "https://example.com/guide.pdf" for node in store.upserted)
+    assert all(node.payload.text_metadata is not None for node in store.upserted)

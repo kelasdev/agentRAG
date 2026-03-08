@@ -9,6 +9,22 @@ def test_chunk_text_respects_boundaries():
     assert all(len(c) <= 30 for c in chunks)
 
 
+def test_chunk_text_safeword_and_header_split():
+    content = """
+# Bagian Satu
+Paragraf satu.
+
+===BATAS===
+
+## Bagian Dua
+Paragraf dua.
+"""
+    chunks = chunk_text(content, max_chars=200)
+    assert len(chunks) == 2
+    assert "Bagian Satu" in chunks[0]
+    assert "Bagian Dua" in chunks[1]
+
+
 def test_chunk_code_python_extracts_symbols():
     code = """
 import os
@@ -46,3 +62,24 @@ class MathOps {
     assert "ImportDeclaration" in ast_types
     assert "FunctionDeclaration" in ast_types
     assert "ClassDeclaration" in ast_types
+
+
+def test_chunk_code_python_syntax_error_falls_back_to_raw_chunk():
+    code = "def broken(:\n  pass\n"
+    chunks = chunk_code(code, language="python")
+    assert len(chunks) == 1
+    assert chunks[0].ast_type is None
+    assert chunks[0].content == code
+
+
+def test_chunk_code_rust_fallback_extracts_function():
+    code = """
+use std::fmt;
+
+fn hello() {
+    println!("hi");
+}
+"""
+    chunks = chunk_code(code, language="rust")
+    ast_types = {c.ast_type for c in chunks}
+    assert "FunctionDeclaration" in ast_types

@@ -46,7 +46,7 @@ class FakeStore:
 
 
 def test_pipeline_fallback_relaxes_constraints():
-    settings = SimpleNamespace(enable_reranker=True, rerank_candidates=20, final_top_k=3)
+    settings = SimpleNamespace(final_top_k=3)
     store = FakeStore()
     result = run_query_pipeline(
         query="show python function for qdrant upsert",
@@ -60,7 +60,7 @@ def test_pipeline_fallback_relaxes_constraints():
 
 
 def test_pipeline_passes_symbol_name_filter():
-    settings = SimpleNamespace(enable_reranker=False, rerank_candidates=20, final_top_k=3)
+    settings = SimpleNamespace(final_top_k=3)
     store = FakeStore()
     run_query_pipeline(
         query="explain function calculate_roi",
