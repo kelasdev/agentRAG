@@ -9,6 +9,7 @@ MCP (Model Context Protocol) Server untuk agentRAG yang memungkinkan integrasi d
 - Python 3.10+
 - Qdrant Cloud account
 - MCP client (VS Code, Codex, KiloCode, dll)
+- Understanding of [vector dimensions](docs/VECTOR_DIMENSIONS.md) (recommended)
 
 ### Install Dependencies
 ```bash
@@ -94,6 +95,50 @@ Edit file `settings.json`:
 ### 1. query_memory
 **Description:** Query the agentRAG memory system for relevant information
 
+#### 🧠 Automatic Query Planning
+Tool ini **otomatis mengklasifikasikan** query Anda tanpa perlu parameter manual:
+
+**Auto-Detection Features:**
+- **Intent Detection** - Mendeteksi tujuan query:
+  - `explain_function` - Query tentang function/class/method
+  - `bug_hunt` - Query tentang bug/error/exception
+  - `refactor_guidance` - Query tentang refactoring
+  - `find_snippet` - Query untuk contoh code
+  - `general_query` - Query umum
+
+- **Node Type Classification** - Otomatis membedakan:
+  - `code` - Jika query menyebut "function", "class", "method", "code"
+  - `text` - Jika query menyebut "docs", "documentation", "guide"
+
+- **Language Detection** - Otomatis deteksi bahasa pemrograman:
+  - "python function" → `language: python`
+  - "javascript class" → `language: javascript`
+  - "golang service" → `language: go`
+
+- **Symbol Extraction** - Otomatis ekstrak nama function/class:
+  - "function calculate_roi" → `symbol_name: calculate_roi`
+  - "class UserService" → `symbol_name: UserService`
+
+**Contoh Query Natural:**
+```json
+// Query: "python function untuk calculate ROI"
+// Auto-detected:
+//   - intent: explain_function
+//   - node_type: code
+//   - language: python
+//   - symbol_name: calculate_roi
+
+// Query: "bug in authentication error"
+// Auto-detected:
+//   - intent: bug_hunt
+//   - node_type: null (search all)
+
+// Query: "installation guide documentation"
+// Auto-detected:
+//   - intent: general_query
+//   - node_type: text
+```
+
 **Input Schema:**
 ```json
 {
@@ -110,12 +155,12 @@ Edit file `settings.json`:
     },
     "node_type": {
       "type": "string",
-      "description": "Filter by node type: 'text' or 'code' (optional)",
+      "description": "Filter by node type: 'text' or 'code' (optional). Leave empty for auto-detection.",
       "enum": ["text", "code"]
     },
     "language": {
       "type": "string",
-      "description": "Filter by programming language (e.g., 'python', 'javascript') (optional)"
+      "description": "Filter by programming language (e.g., 'python', 'javascript') (optional). Leave empty for auto-detection."
     },
     "access_level": {
       "type": "string",
@@ -128,6 +173,19 @@ Edit file `settings.json`:
 ```
 
 **Example Usage:**
+
+**Natural Query (Recommended):**
+```json
+{
+  "name": "query_memory",
+  "arguments": {
+    "query": "python function untuk calculate ROI"
+  }
+}
+// Auto-detects: node_type=code, language=python, symbol_name=calculate_roi
+```
+
+**Manual Override (Optional):**
 ```json
 {
   "name": "query_memory",
@@ -203,16 +261,124 @@ Edit file `settings.json`:
 }
 ```
 
+---
+
+## 🔄 Query Flow & Fallback Strategy
+
+### Search Flow
+```
+User Query
+    ↓
+Automatic Query Planning
+  - Detect intent (explain_function, bug_hunt, etc.)
+  - Classify node_type (code/text)
+  - Extract language (python, javascript, etc.)
+  - Extract symbol_name (function/class name)
+    ↓
+Strict Search (with all filters)
+    ↓
+Results found? → Return ranked results
+    ↓
+No results? → Fallback Strategy
+    ↓
+Fallback 1: Remove symbol_name filter
+Fallback 2: Remove language filter
+Fallback 3: Remove node_type filter
+    ↓
+Return best available results
+```
+
+### Fallback Example
+```json
+// Query: "python function calculate_roi"
+// 
+// Strict search:
+//   node_type=code, language=python, symbol_name=calculate_roi
+//   → No results
+//
+// Fallback 1:
+//   node_type=code, language=python (remove symbol_name)
+//   → Found 3 results ✓
+```
+
+---
+
 ## Usage Examples
 
-### Querying Code Snippets
+### 1. Natural Language Queries (Recommended)
+
+**Find Python Function:**
 ```json
 {
   "name": "query_memory",
   "arguments": {
-    "query": "function to calculate ROI",
+    "query": "python function untuk calculate ROI"
+  }
+}
+// Auto-detects: code, python, calculate_roi
+```
+
+**Find Bug/Error:**
+```json
+{
+  "name": "query_memory",
+  "arguments": {
+    "query": "bug in authentication error"
+  }
+}
+// Auto-detects: intent=bug_hunt, searches all types
+```
+
+**Find Documentation:**
+```json
+{
+  "name": "query_memory",
+  "arguments": {
+    "query": "installation guide documentation"
+  }
+}
+// Auto-detects: node_type=text
+```
+
+**Find Code Example:**
+```json
+{
+  "name": "query_memory",
+  "arguments": {
+    "query": "show javascript class for user authentication"
+  }
+}
+// Auto-detects: code, javascript, UserAuthentication
+```
+
+### 2. Manual Override (When Needed)
+
+**Force Specific Language:**
+```json
+{
+  "name": "query_memory",
+  "arguments": {
+    "query": "calculate ROI",
     "node_type": "code",
-    "language": "python"
+    "language": "python",
+    "top_k": 5
+  }
+}
+```
+
+**Search Only Documentation:**
+```json
+{
+  "name": "query_memory",
+  "arguments": {
+    "query": "API endpoints",
+    "node_type": "text",
+    "top_k": 10
+  }
+}
+```
+
+### 3. Ingesting Documents
   }
 }
 ```
@@ -382,3 +548,10 @@ For issues and questions:
 2. Verify configuration settings
 3. Test with simple queries first
 4. Ensure all dependencies are up to date
+
+## Additional Resources
+
+- [Vector Dimensions Explained](docs/VECTOR_DIMENSIONS.md) - Understanding embedding dimensions and troubleshooting dimension mismatch errors
+- [MCP Testing Guide](MCP_TESTING.md) - Comprehensive testing documentation
+- [MCP Quick Reference](MCP_QUICK_REF.md) - Quick reference for tools and parameters
+- [Main README](README.md) - Project overview and features

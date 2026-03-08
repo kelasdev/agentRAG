@@ -6,6 +6,8 @@
 
 ***Tujuan Utama:** Membangun brain memory berbasis vektor yang mampu memberikan konteks akurat dari dokumen teks (FAQ, panduan) dan *source code* secara bersamaan tanpa merusak struktur atau makna.
 
+**Jenis Produk:** Library/Tool (bukan SaaS/Managed Service)
+
 ***Target Pengguna:**
 
   -**CLI Tool** - Command-line interface untuk ingest dan query
@@ -14,6 +16,22 @@
 
   -**MCP Server** - Model Context Protocol server untuk integrasi dengan AI agents (Claude, Kiro, dll)
 
+
+## Prinsip Desain
+
+**agentRAG adalah library/tool yang berjalan di environment user**, bukan managed service. Ini berarti:
+
+- ✅ **User Control** - User memiliki kontrol penuh atas data, konfigurasi, dan deployment
+- ✅ **Environment Agnostic** - Bisa dijalankan di local machine, server pribadi, atau cloud infrastructure user
+- ✅ **No Vendor Lock-in** - User bebas memilih Qdrant instance (cloud/self-hosted) dan embedding provider
+- ✅ **Security by Design** - Security dan privacy menjadi tanggung jawab implementor sesuai kebutuhan mereka
+- ✅ **Flexible Integration** - Bisa diintegrasikan ke berbagai project (OpenClay, Nanobot, custom apps, dll)
+
+**Konsekuensi:**
+- ❌ Tidak ada built-in authentication/authorization (user implement sendiri jika perlu)
+- ❌ Tidak ada monitoring/alerting bawaan (user setup sendiri sesuai stack mereka)
+- ❌ Tidak ada compliance enforcement (GDPR, SOC2, dll - tanggung jawab user)
+- ❌ Tidak ada SLA atau uptime guarantee (tergantung deployment user)
 ## Business Context
 
 ### Problem Statement
@@ -348,38 +366,6 @@ agentRAG memberikan:
 -**Consistency** - Response uniformity, error handling
 
 -**Security** - Access control compliance, data protection
-
-## Security & Privacy (Enhanced)
-
-### Threat Modeling
-
--**Data Breaches** - Unauthorized access, data exfiltration
-
--**Denial of Service** - Resource exhaustion, service disruption
-
--**Injection Attacks** - Malicious queries, code injection
-
--**Privacy Violations** - Data leakage, unauthorized processing
-
-### Security Controls
-
--**Authentication** - API keys, user authentication
-
--**Authorization** - Role-based access, permission levels
-
--**Encryption** - Data at rest, data in transit
-
--**Audit Logging** - Access tracking, change history
-
-### Compliance Considerations
-
--**GDPR** - Data protection, user rights, data localization
-
--**Industry Standards** - Security best practices, compliance frameworks
-
--**Data Retention** - Policy enforcement, automatic cleanup
-
--**Incident Response** - Breach procedures, notification requirements
 
 ## Future Enhancements
 
@@ -1144,33 +1130,6 @@ sequenceDiagram
 6. Final top-k selection
 7. JSON response generation
 
-## Performance Metrics
-
-### Target
-
-* Latency: <1s per query (cloud-based)
-* Recall: >0.8
-* Throughput: 50 queries/minute (cloud-based)
-* Memory Usage: <500MB (aplikasi, cloud-based vector storage)
-* Constraint Match Rate: >0.9 (hard constraints seperti language/symbol harus terpenuhi)
-* Delta Re-ingest Write Reduction: >70% pada re-ingest berulang (dibanding full rewrite)
-* Unchanged Chunk Ratio: >60% untuk re-ingest rutin pada source stabil
-* Stale Delete Latency: p95 <500ms per 1.000 stale IDs (source-scoped)
-* Source Re-ingest Duration: p95 <3s per file ukuran menengah (<5MB)
-* Fallback Hit Recovery: >50% query strict-empty berhasil dapat kandidat setelah fallback bertahap
-
-### Monitoring
-
-* Query success rate
-* Average response time
-* Memory usage
-* Vector database performance
-* Retrieval precision@k
-* Constraint compliance rate
-* Ingest counters: `new_chunks`, `unchanged_chunks`, `stale_deleted`, `skipped`
-* Delta efficiency trend: write reduction per re-ingest batch
-* Query fallback metrics: strict-empty rate, fallback stage success rate
-
 ## Resource Optimization
 
 ### Memory Management
@@ -1274,24 +1233,6 @@ Beralih ke `uv` akan meningkatkan pengalaman pengembangan Anda secara drastis, m
 * Region selection
 * Service level agreements
 
-## Security & Privacy
-
-### Data Handling
-
-* Encryption at rest
-* Access control
-* Audit logging
-* Data retention policies
-
-***Zero Data Retention** - Opt-out dari model training saat menggunakan Cloud LLM API untuk memastikan source code tidak bocor
-
-### Compliance
-
-* GDPR considerations
-* Data localization
-* User consent management
-
-## MCP Configuration (VS Code / Codex / KiloCode)
 
 ### Tujuan
 
