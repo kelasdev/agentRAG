@@ -12,6 +12,7 @@ dependencies = [
   "python-dotenv>=1.0.1",
   "tree-sitter>=0.21.3",
   "tree-sitter-languages>=1.10.2",
+  "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +22,7 @@ dev = [
 
 [project.scripts]
 agentrag = "agentrag.cli:app"
+agentrag-mcp = "agentrag.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -28,3 +30,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["agentrag", "agentrag.chunkers", "agentrag.providers"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

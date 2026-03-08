@@ -243,6 +243,9 @@ class EmbeddingProvider:
         return vec
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        
         if self.provider == "fastembed":
             if self._fastembed is None:
                 raise RuntimeError("fastembed provider is not initialized")
@@ -260,6 +263,23 @@ class EmbeddingProvider:
             vectors = self._openai_embed_batch(texts)
             logger.debug(
                 "embedding_batch_ok provider=openai_compatible count=%s dims=%s elapsed_ms=%.2f",
+                len(texts),
+                self.dimensions,
+                (perf_counter() - started) * 1000,
+            )
+            return vectors
+        if self.provider == "llama_cpp_python":
+            if self._llama is None:
+                raise RuntimeError("llama_cpp provider is not initialized")
+            started = perf_counter()
+            vectors = []
+            with _suppress_stderr():
+                # Use batch processing for llama.cpp with memory optimization
+                for text in texts:
+                    out = self._llama.create_embedding(text)
+                    vectors.append(list(out["data"][0]["embedding"]))
+            logger.debug(
+                "embedding_batch_ok provider=llama_cpp_python count=%s dims=%s elapsed_ms=%.2f",
                 len(texts),
                 self.dimensions,
                 (perf_counter() - started) * 1000,

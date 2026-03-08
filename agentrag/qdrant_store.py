@@ -64,6 +64,10 @@ class QdrantStore:
         except Exception:
             return False
 
+    def count(self) -> Any:
+        """Get the count of points in the collection."""
+        return self.client.count(collection_name=self.collection_name, exact=False)
+
     def upsert(self, nodes: list[VectorNode]) -> None:
         points = [
             PointStruct(id=n.id, vector=n.vector, payload=n.payload.model_dump(mode="json"))
