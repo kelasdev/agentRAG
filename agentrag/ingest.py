@@ -4,11 +4,13 @@ import hashlib
 import json
 import logging
 import re
+import socket
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -91,8 +93,13 @@ def _fetch_web_content_via_jina(
             "Accept": "text/plain, text/markdown; q=0.9, */*; q=0.8",
         },
     )
-    with urlopen(req, timeout=request_timeout_seconds) as resp:
-        raw = resp.read()
+    try:
+        with urlopen(req, timeout=request_timeout_seconds) as resp:
+            if resp.status != 200:
+                raise HTTPError(req.get_full_url(), resp.status, resp.reason, resp.headers, None)
+            raw = resp.read()
+    except socket.timeout as exc:
+        raise TimeoutError(f"Request timed out after {request_timeout_seconds} seconds") from exc
     return raw.decode("utf-8", errors="ignore")
 
 
@@ -341,8 +348,12 @@ def ingest_urls(
                 jina_reader_base_url=jina_reader_base_url,
                 request_timeout_seconds=request_timeout_seconds,
             )
-        except Exception as exc:
+        except (URLError, HTTPError, TimeoutError) as exc:
             logger.warning("ingest_url_fetch_failed source=%s error=%s", source_id, exc)
+            skipped += 1
+            continue
+        except Exception as exc:
+            logger.error("ingest_url_unexpected_error source=%s error=%s", source_id, exc)
             skipped += 1
             continue
 
