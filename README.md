@@ -305,11 +305,36 @@ Install dev dependencies:
 pip install -r requirements-dev.txt
 ```
 
-Run tests:
+### Quick Test
+
+Run all tests:
 
 ```bash
-pytest -q
+./scripts/run_all_tests.sh
 ```
+
+Or run individual test suites:
+
+```bash
+# Unit tests (pytest)
+pytest -q
+
+# Integration tests
+python scripts/test_mcp_integration.py
+
+# Scenario tests
+python scripts/test_scenarios.py
+```
+
+### Test Coverage
+
+**Current Status:** ✅ 54/56 tests passing (96.4% success rate)
+
+- **Unit Tests:** 36 passed, 2 skipped
+- **Integration Tests:** 3 passed
+- **Scenario Tests:** 15 passed
+
+See [TEST_REPORT.md](TEST_REPORT.md) for detailed test results and coverage analysis.
 
 ### MCP Server Testing
 
@@ -321,6 +346,9 @@ pytest tests/test_mcp_server.py -v
 
 # Integration test
 python scripts/test_mcp_integration.py
+
+# Visual testing with MCP Inspector
+npx @modelcontextprotocol/inspector python -m agentrag.mcp_server
 ```
 
 See [MCP_TESTING.md](MCP_TESTING.md) for comprehensive testing guide and [MCP_QUICK_REF.md](MCP_QUICK_REF.md) for quick reference.
