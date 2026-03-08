@@ -1,5 +1,10 @@
 # agentRAG
 
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-36%2F38%20passing-brightgreen.svg)](tests/)
+[![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
+
 > **Intelligent Memory System for AI Agents** - Hybrid text+code RAG with automatic query understanding and MCP integration.
 
 ## 🎯 Overview
