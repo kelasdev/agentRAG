@@ -44,10 +44,10 @@ async def test_health_check(embedder, store):
     """Test health_check handler."""
     result = await _handle_health_check(embedder, store)
     
-    assert result.content
-    assert len(result.content) == 1
+    assert result
+    assert len(result) == 1
     
-    response = json.loads(result.content[0].text)
+    response = json.loads(result[0].text)
     assert "ok" in response
     assert "qdrant_ok" in response
     assert "embedder_ok" in response

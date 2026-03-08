@@ -46,7 +46,7 @@ async def test_health_check():
     )
     
     result = await _handle_health_check(embedder, store)
-    response = json.loads(result.content[0].text)
+    response = json.loads(result[0].text)
     
     print(json.dumps(response, indent=2))
     
@@ -75,7 +75,7 @@ async def test_ingest(embedder, store):
     }
     
     result = await _handle_ingest_documents(arguments, embedder, store)
-    response = json.loads(result.content[0].text)
+    response = json.loads(result[0].text)
     
     print(json.dumps(response, indent=2))
     print("✓ Ingest test passed (dry run)")
@@ -94,7 +94,7 @@ async def test_query(embedder, store):
     }
     
     result = await _handle_query_memory(arguments, embedder, store)
-    response = json.loads(result.content[0].text)
+    response = json.loads(result[0].text)
     
     print(f"Query: {response['query']}")
     print(f"Total hits: {response['total_hits']}")

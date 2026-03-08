@@ -139,13 +139,10 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
             
     except Exception as e:
         logger.error(f"Tool call failed for {name}: {e}")
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"Error: {str(e)}")],
-            isError=True
-        )
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
-async def _handle_query_memory(arguments: Dict[str, Any], embedder: EmbeddingProvider, store: QdrantStore) -> CallToolResult:
+async def _handle_query_memory(arguments: Dict[str, Any], embedder: EmbeddingProvider, store: QdrantStore) -> List[TextContent]:
     """Handle query_memory tool call."""
     query = arguments.get("query", "")
     top_k = arguments.get("top_k", 3)
@@ -197,12 +194,10 @@ async def _handle_query_memory(arguments: Dict[str, Any], embedder: EmbeddingPro
         "hits": hits_data
     }
     
-    return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(response, ensure_ascii=True, indent=2))]
-    )
+    return [TextContent(type="text", text=json.dumps(response, ensure_ascii=True, indent=2))]
 
 
-async def _handle_ingest_documents(arguments: Dict[str, Any], embedder: EmbeddingProvider, store: QdrantStore) -> CallToolResult:
+async def _handle_ingest_documents(arguments: Dict[str, Any], embedder: EmbeddingProvider, store: QdrantStore) -> List[TextContent]:
     """Handle ingest_documents tool call."""
     targets = arguments.get("targets", [])
     access_level = arguments.get("access_level", "internal")
@@ -284,12 +279,10 @@ async def _handle_ingest_documents(arguments: Dict[str, Any], embedder: Embeddin
     else:
         combined_result = {"message": "No valid targets found", "dry_run": dry_run}
     
-    return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(combined_result, ensure_ascii=True, indent=2))]
-    )
+    return [TextContent(type="text", text=json.dumps(combined_result, ensure_ascii=True, indent=2))]
 
 
-async def _handle_health_check(embedder: EmbeddingProvider, store: QdrantStore) -> CallToolResult:
+async def _handle_health_check(embedder: EmbeddingProvider, store: QdrantStore) -> List[TextContent]:
     """Handle health_check tool call."""
     # Check Qdrant connection
     qdrant_ok = store.health_check()
@@ -328,9 +321,7 @@ async def _handle_health_check(embedder: EmbeddingProvider, store: QdrantStore) 
         "embedding_dimensions": embedder.dimensions
     }
     
-    return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(health_status, ensure_ascii=True, indent=2))]
-    )
+    return [TextContent(type="text", text=json.dumps(health_status, ensure_ascii=True, indent=2))]
 
 
 async def main():
