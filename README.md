@@ -171,6 +171,7 @@ agentRAG automatically:
 - [MCP_SERVER_README.md](MCP_SERVER_README.md) - Complete MCP server guide
 - [MCP_QUICK_REF.md](MCP_QUICK_REF.md) - Quick reference
 - [MCP_TESTING.md](MCP_TESTING.md) - Testing guide
+- [MCP_INSPECTOR_GUIDE.md](MCP_INSPECTOR_GUIDE.md) - Visual testing with MCP Inspector
 
 ---
 
@@ -327,6 +328,7 @@ See [MCP_TESTING.md](MCP_TESTING.md) for comprehensive testing guide and [MCP_QU
 - [MCP Server Guide](MCP_SERVER_README.md) - Complete MCP server documentation
 - [MCP Quick Reference](MCP_QUICK_REF.md) - Quick reference for MCP tools
 - [MCP Testing Guide](MCP_TESTING.md) - Comprehensive testing guide
+- [MCP Inspector Guide](MCP_INSPECTOR_GUIDE.md) - Visual testing with MCP Inspector
 
 ---
 
