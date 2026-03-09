@@ -201,6 +201,12 @@ Tool ini **otomatis mengklasifikasikan** query Anda tanpa perlu parameter manual
 ### 2. ingest_documents
 **Description:** Ingest documents into the agentRAG memory system
 
+**Features:**
+- Supports local files, directories, and URLs
+- Automatic `.gitignore` pattern matching for directories
+- Delta sync (only updates changed chunks)
+- Dry-run mode for preview
+
 **Input Schema:**
 ```json
 {

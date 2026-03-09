@@ -1,7 +1,7 @@
 # agentRAG Test Report
 
-**Date:** 2026-03-08  
-**Version:** 1.0.0  
+**Date:** 2026-03-09  
+**Version:** 1.0.1  
 **Test Environment:** Linux, Python 3.12.3
 
 ---
@@ -10,12 +10,12 @@
 
 | Test Suite | Total | Passed | Failed | Skipped | Status |
 |------------|-------|--------|--------|---------|--------|
-| Unit Tests | 38 | 36 | 0 | 2 | ✅ PASS |
+| Unit Tests | 44 | 42 | 0 | 2 | ✅ PASS |
 | Integration Tests | 3 | 3 | 0 | 0 | ✅ PASS |
 | Scenario Tests | 15 | 15 | 0 | 0 | ✅ PASS |
-| **TOTAL** | **56** | **54** | **0** | **2** | **✅ PASS** |
+| **TOTAL** | **62** | **60** | **0** | **2** | **✅ PASS** |
 
-**Overall Success Rate:** 96.4% (54/56 tests passed, 2 skipped)
+**Overall Success Rate:** 96.8% (60/62 tests passed, 2 skipped)
 
 ---
 
@@ -24,8 +24,8 @@
 ### 1. Unit Tests (pytest)
 
 **Command:** `pytest -v --tb=short`  
-**Duration:** 10.99s  
-**Result:** 36 passed, 2 skipped
+**Duration:** 8.80s  
+**Result:** 42 passed, 2 skipped
 
 #### Test Breakdown by Module:
 
@@ -46,6 +46,14 @@
 - ✅ `test_chunk_code_js_extracts_structural_types` - JavaScript Tree-sitter chunking
 - ✅ `test_chunk_code_python_syntax_error_falls_back_to_raw_chunk` - Fallback handling
 - ✅ `test_chunk_code_rust_fallback_extracts_function` - Rust regex fallback
+
+**Gitignore Support (6 tests)** 🆕
+- ✅ `test_collect_files_respects_gitignore_patterns` - Wildcard patterns
+- ✅ `test_collect_files_respects_directory_patterns` - Directory exclusions
+- ✅ `test_collect_files_excludes_git_directory` - Default .git exclusion
+- ✅ `test_collect_files_without_gitignore` - Graceful fallback
+- ✅ `test_collect_files_with_wildcard_patterns` - Complex wildcards
+- ✅ `test_ingest_command_respects_gitignore` - Integration test
 
 **CLI (6 tests)**
 - ✅ `test_query_command_outputs_json` - JSON output format

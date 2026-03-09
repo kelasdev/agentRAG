@@ -5,6 +5,7 @@
 ### 1. INGEST PIPELINE ✅
 - [x] Local file ingest (text + code)
 - [x] Directory recursive ingest
+- [x] .gitignore pattern support
 - [x] URL ingest via Jina Reader
 - [x] Web content sanitization
 - [x] Delta sync (unchanged/new/stale detection)
@@ -12,7 +13,7 @@
 - [x] Dry-run mode
 - [x] Error handling & logging
 
-**Test Coverage:** 5/5 passed
+**Test Coverage:** 11/11 passed (includes 6 gitignore tests)
 **Status:** PRODUCTION READY ✅
 
 ### 2. CHUNKING ✅
