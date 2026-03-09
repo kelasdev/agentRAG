@@ -92,7 +92,7 @@ echo ""
 if [ $TOTAL_FAILED -eq 0 ]; then
     echo -e "${GREEN}🎉 All tests passed!${NC}"
     echo ""
-    echo "See TEST_REPORT.md for detailed results."
+    echo "See docs/TEST_REPORT.md for detailed results."
     exit 0
 else
     echo -e "${RED}⚠️  Some tests failed${NC}"

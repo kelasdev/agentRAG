@@ -2,7 +2,6 @@
 
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-36%2F38%20passing-brightgreen.svg)](tests/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 
 > **Intelligent Memory System for AI Agents** - Hybrid text+code RAG with automatic query understanding and MCP integration.
@@ -92,7 +91,7 @@ pip install -r requirements-dev.txt
 3. Run ingest (local file/dir):
 
 ```bash
-agentrag ingest PRD.md
+agentrag ingest docs/PRD.md
 ```
 
 Ingest from web URL (via Jina Reader public API):
@@ -173,10 +172,10 @@ agentRAG automatically:
 ```
 
 **Documentation:**
-- [MCP_SERVER_README.md](MCP_SERVER_README.md) - Complete MCP server guide
-- [MCP_QUICK_REF.md](MCP_QUICK_REF.md) - Quick reference
-- [MCP_TESTING.md](MCP_TESTING.md) - Testing guide
-- [MCP_INSPECTOR_GUIDE.md](MCP_INSPECTOR_GUIDE.md) - Visual testing with MCP Inspector
+- [MCP_SERVER_README.md](docs/MCP_SERVER_README.md) - Complete MCP server guide
+- [MCP_QUICK_REF.md](docs/MCP_QUICK_REF.md) - Quick reference
+- [MCP_TESTING.md](docs/MCP_TESTING.md) - Testing guide
+- [MCP_INSPECTOR_GUIDE.md](docs/MCP_INSPECTOR_GUIDE.md) - Visual testing with MCP Inspector
 
 ---
 
@@ -334,7 +333,7 @@ python scripts/test_scenarios.py
 - **Integration Tests:** 3 passed
 - **Scenario Tests:** 15 passed
 
-See [TEST_REPORT.md](TEST_REPORT.md) for detailed test results and coverage analysis.
+See [TEST_REPORT.md](docs/TEST_REPORT.md) for detailed test results and coverage analysis.
 
 ### MCP Server Testing
 
@@ -351,17 +350,17 @@ python scripts/test_mcp_integration.py
 npx @modelcontextprotocol/inspector python -m agentrag.mcp_server
 ```
 
-See [MCP_TESTING.md](MCP_TESTING.md) for comprehensive testing guide and [MCP_QUICK_REF.md](MCP_QUICK_REF.md) for quick reference.
+See [MCP_TESTING.md](docs/MCP_TESTING.md) for comprehensive testing guide and [MCP_QUICK_REF.md](docs/MCP_QUICK_REF.md) for quick reference.
 
 ---
 
 ## 📚 Documentation
 
 - [Vector Dimensions Explained](docs/VECTOR_DIMENSIONS.md) - Memahami dimensi vektor dan embedding models
-- [MCP Server Guide](MCP_SERVER_README.md) - Complete MCP server documentation
-- [MCP Quick Reference](MCP_QUICK_REF.md) - Quick reference for MCP tools
-- [MCP Testing Guide](MCP_TESTING.md) - Comprehensive testing guide
-- [MCP Inspector Guide](MCP_INSPECTOR_GUIDE.md) - Visual testing with MCP Inspector
+- [MCP Server Guide](docs/MCP_SERVER_README.md) - Complete MCP server documentation
+- [MCP Quick Reference](docs/MCP_QUICK_REF.md) - Quick reference for MCP tools
+- [MCP Testing Guide](docs/MCP_TESTING.md) - Comprehensive testing guide
+- [MCP Inspector Guide](docs/MCP_INSPECTOR_GUIDE.md) - Visual testing with MCP Inspector
 
 ---
 
