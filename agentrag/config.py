@@ -1,12 +1,17 @@
+from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).parent.parent / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
     qdrant_url: str = Field(alias="QDRANT_URL")
-    qdrant_api_key: str = Field(alias="QDRANT_API_KEY")
+    qdrant_api_key: str | None = Field(default=None, alias="QDRANT_API_KEY")
     collection_name: str = Field(default="agentrag_memory", alias="COLLECTION_NAME")
     default_top_k_memory_query: int = Field(default=3, alias="DEFAULT_TOP_K_MEMORY_QUERY")
 
