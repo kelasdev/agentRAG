@@ -232,6 +232,47 @@ def _raise_friendly_dimension_error(collection_name: str, exc: Exception, code: 
     )
 
 
+def _collect_files_respecting_gitignore(root: Path) -> list[Path]:
+    """Collect files from directory, respecting .gitignore patterns."""
+    import fnmatch
+    
+    gitignore_path = root / ".gitignore"
+    patterns: list[str] = [".git/"]  # Always exclude .git directory
+    
+    if gitignore_path.exists():
+        with open(gitignore_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    patterns.append(line)
+    
+    files: list[Path] = []
+    for item in root.rglob("*"):
+        if not item.is_file():
+            continue
+        
+        # Check if file matches any gitignore pattern
+        relative = item.relative_to(root)
+        ignored = False
+        for pattern in patterns:
+            # Handle directory patterns (ending with /)
+            if pattern.endswith("/"):
+                dir_pattern = pattern.rstrip("/")
+                if any(part == dir_pattern or fnmatch.fnmatch(part, dir_pattern) 
+                       for part in relative.parts):
+                    ignored = True
+                    break
+            # Handle file patterns
+            elif fnmatch.fnmatch(str(relative), pattern) or fnmatch.fnmatch(relative.name, pattern):
+                ignored = True
+                break
+        
+        if not ignored:
+            files.append(item)
+    
+    return files
+
+
 @app.command("ingest")
 def ingest_command(
     target: list[str] = typer.Argument(..., help="Path/dir or URL (http/https)"),
@@ -289,7 +330,7 @@ def ingest_command(
             continue
         p = Path(value)
         if p.is_dir():
-            files.extend(x for x in p.rglob("*") if x.is_file())
+            files.extend(_collect_files_respecting_gitignore(p))
         else:
             files.append(p)
 

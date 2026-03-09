@@ -262,6 +262,27 @@ agentrag ingest \
   --dry-run
 ```
 
+### .gitignore Support
+
+When ingesting directories, agentRAG automatically respects `.gitignore` patterns:
+
+- Reads `.gitignore` from the target directory
+- Excludes files matching patterns (wildcards, directories)
+- Always excludes `.git/` directory by default
+- Works with nested directories and complex patterns
+
+Example:
+```bash
+# .gitignore in your project
+*.pyc
+__pycache__/
+node_modules/
+dist/
+
+# Ingest will automatically skip these files
+agentrag ingest ./my-project
+```
+
 ### URL Ingest Details
 
 - Fetch path: `JINA_READER_BASE_URL + target_url` (default `https://r.jina.ai/`).
