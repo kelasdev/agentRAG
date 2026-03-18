@@ -48,7 +48,8 @@ def test_collect_files_respects_directory_patterns():
         (test_dir / ".gitignore").write_text("node_modules/\n__pycache__/\n")
         
         files = _collect_files_respecting_gitignore(test_dir)
-        relative_paths = {str(f.relative_to(test_dir)) for f in files}
+        # Normalize to POSIX separators so assertions are OS-independent.
+        relative_paths = {f.relative_to(test_dir).as_posix() for f in files}
         
         assert "src/main.py" in relative_paths
         assert "node_modules/package.js" not in relative_paths
@@ -68,7 +69,8 @@ def test_collect_files_excludes_git_directory():
         (test_dir / "src.py").write_text("# include")
         
         files = _collect_files_respecting_gitignore(test_dir)
-        relative_paths = {str(f.relative_to(test_dir)) for f in files}
+        # Normalize to POSIX separators so assertions are OS-independent.
+        relative_paths = {f.relative_to(test_dir).as_posix() for f in files}
         
         assert "src.py" in relative_paths
         assert ".git/config" not in relative_paths
@@ -104,7 +106,8 @@ def test_collect_files_with_wildcard_patterns():
         (test_dir / ".gitignore").write_text("*.pyc\n")
         
         files = _collect_files_respecting_gitignore(test_dir)
-        relative_paths = {str(f.relative_to(test_dir)) for f in files}
+        # Normalize to POSIX separators so assertions are OS-independent.
+        relative_paths = {f.relative_to(test_dir).as_posix() for f in files}
         
         assert "src/main.py" in relative_paths
         assert "data.json" in relative_paths

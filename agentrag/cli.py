@@ -233,43 +233,113 @@ def _raise_friendly_dimension_error(collection_name: str, exc: Exception, code: 
 
 
 def _collect_files_respecting_gitignore(root: Path) -> list[Path]:
-    """Collect files from directory, respecting .gitignore patterns."""
+    """Collect files from directory, respecting .gitignore patterns.
+
+    IMPORTANT: do not use Path.rglob() + post-filtering because it still traverses
+    ignored directories (e.g. .venv, node_modules) and becomes extremely heavy.
+    We instead walk top-down and prune ignored dirs early.
+    """
     import fnmatch
-    
+    import os
+
+    root = root.resolve()
     gitignore_path = root / ".gitignore"
-    patterns: list[str] = [".git/"]  # Always exclude .git directory
-    
+
+    # Always exclude VCS metadata directories.
+    raw_patterns: list[str] = [".git/"]
+
     if gitignore_path.exists():
         with open(gitignore_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith("#"):
-                    patterns.append(line)
-    
-    files: list[Path] = []
-    for item in root.rglob("*"):
-        if not item.is_file():
-            continue
-        
-        # Check if file matches any gitignore pattern
-        relative = item.relative_to(root)
+                if not line or line.startswith("#"):
+                    continue
+                raw_patterns.append(line)
+
+    def _norm_pattern(p: str) -> str:
+        # Keep patterns close to gitignore format, but normalize separators.
+        return p.strip().replace("\\", "/")
+
+    patterns = [_norm_pattern(p) for p in raw_patterns if _norm_pattern(p)]
+
+    def _matches_pattern(rel_posix: str, parts: tuple[str, ...], pattern: str, *, is_dir: bool) -> bool:
+        # Minimal gitignore-like matcher:
+        # - lines starting with '!' negate (unignore)
+        # - trailing '/' means directory-only
+        # - patterns without '/' match a single path component name (file or directory)
+        # - patterns with '/' match against the relative POSIX path
+        pat = pattern
+        if pat.startswith("!"):
+            pat = pat[1:]
+        pat = pat.strip()
+        if not pat:
+            return False
+
+        anchored = pat.startswith("/")
+        if anchored:
+            pat = pat.lstrip("/")
+
+        dir_only = pat.endswith("/")
+        pat_core = pat.rstrip("/")
+
+        if not pat_core:
+            return False
+
+        has_slash = "/" in pat_core
+
+        # Directory matching (for pruning)
+        if is_dir:
+            # If pattern has no '/', gitignore matches basename anywhere.
+            if not has_slash:
+                return any(fnmatch.fnmatch(part, pat_core) for part in parts)
+            # If it has '/', treat it as a path match (anchored to root by default in our implementation).
+            if anchored:
+                return fnmatch.fnmatch(rel_posix, pat_core)
+            return fnmatch.fnmatch(rel_posix, pat_core) or fnmatch.fnmatch(rel_posix, f"*/{pat_core}")
+
+        # File matching
+        if dir_only:
+            # A directory-only rule does not directly match files (it matches via pruning the dir).
+            return False
+        if not has_slash:
+            # Basename match anywhere.
+            return fnmatch.fnmatch(parts[-1] if parts else rel_posix, pat_core)
+        if anchored:
+            return fnmatch.fnmatch(rel_posix, pat_core)
+        return fnmatch.fnmatch(rel_posix, pat_core) or fnmatch.fnmatch(rel_posix, f"*/{pat_core}")
+
+    def _is_ignored(relative: Path, *, is_dir: bool) -> bool:
+        rel_posix = relative.as_posix()
+        parts = tuple(relative.parts)
         ignored = False
-        for pattern in patterns:
-            # Handle directory patterns (ending with /)
-            if pattern.endswith("/"):
-                dir_pattern = pattern.rstrip("/")
-                if any(part == dir_pattern or fnmatch.fnmatch(part, dir_pattern) 
-                       for part in relative.parts):
-                    ignored = True
-                    break
-            # Handle file patterns
-            elif fnmatch.fnmatch(str(relative), pattern) or fnmatch.fnmatch(relative.name, pattern):
-                ignored = True
-                break
-        
-        if not ignored:
-            files.append(item)
-    
+        for p in patterns:
+            is_negation = p.startswith("!")
+            matched = _matches_pattern(rel_posix, parts, p, is_dir=is_dir)
+            if not matched:
+                continue
+            ignored = not is_negation
+        return ignored
+
+    files: list[Path] = []
+
+    # Top-down walk so we can prune ignored directories early.
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+        current_dir = Path(dirpath)
+        rel_dir = current_dir.relative_to(root)
+
+        # Prune ignored directories in-place to avoid traversing them.
+        # This is the main fix for "folder indexing becomes too heavy".
+        for d in list(dirnames):
+            rel_child = (rel_dir / d) if str(rel_dir) != "." else Path(d)
+            if _is_ignored(rel_child, is_dir=True):
+                dirnames.remove(d)
+
+        for name in filenames:
+            rel_file = (rel_dir / name) if str(rel_dir) != "." else Path(name)
+            if _is_ignored(rel_file, is_dir=False):
+                continue
+            files.append(current_dir / name)
+
     return files
 
 
