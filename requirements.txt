@@ -1,5 +1,8 @@
-# agentRAG runtime requirements (pinned to currently installed versions)
+# agentRAG runtime requirements
 # Install with: pip install -r requirements.txt
+# Windows/Python 3.12 llama-cpp-python note:
+# If standard install fails, use the verified CPU wheel command below first:
+# pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:
 
 # Needed for llama-cpp-python CPU wheels
 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
@@ -17,4 +20,4 @@ watchdog==4.0.2
 
 # Embedding providers
 fastembed==0.7.4
-llama-cpp-python==0.3.16
+llama-cpp-python==0.3.2

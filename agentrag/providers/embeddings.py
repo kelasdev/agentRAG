@@ -73,7 +73,10 @@ class EmbeddingProvider:
             from llama_cpp import Llama  # type: ignore
         except Exception as exc:
             raise RuntimeError(
-                "llama_cpp_python is not installed. Install CPU build and retry."
+                "llama_cpp_python is not installed. Install with "
+                "'pip install llama-cpp-python --extra-index-url "
+                "https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:' "
+                "and retry."
             ) from exc
 
         started = perf_counter()

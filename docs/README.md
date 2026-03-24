@@ -42,6 +42,18 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+For `llama_cpp_python` on Windows/Python 3.12, use:
+
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:
+```
+
+Repeatable Windows setup script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+```
+
 **Quick Start:**
 ```bash
 # Ingest documents

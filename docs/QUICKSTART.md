@@ -39,6 +39,19 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+Jika Anda memakai `EMBEDDING_PROVIDER=llama_cpp_python` di Windows/Python 3.12, gunakan jalur yang sudah teruji ini dan jangan pakai instalasi default:
+
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:
+python -c "from llama_cpp import Llama; print('Success: llama-cpp-python is working!')"
+```
+
+Atau gunakan script setup Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+```
+
 ## Configuration
 
 1. Copy `.env.example` to `.env`:

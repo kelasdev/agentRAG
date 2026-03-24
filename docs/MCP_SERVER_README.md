@@ -17,6 +17,13 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
+If your MCP setup uses `EMBEDDING_PROVIDER=llama_cpp_python` on Windows/Python 3.12, install `llama-cpp-python` with the verified CPU wheel path:
+
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:
+python -c "from llama_cpp import Llama; print('Success: llama-cpp-python is working!')"
+```
+
 ## Configuration
 
 ### Environment Variables

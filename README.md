@@ -85,6 +85,19 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+If you want to use `EMBEDDING_PROVIDER=llama_cpp_python` on Windows/Python 3.12, do not rely on a plain `pip install llama-cpp-python`. Use the verified wheel install:
+
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:
+python -c "from llama_cpp import Llama; print('Success: llama-cpp-python is working!')"
+```
+
+For a repeatable Windows setup, you can also run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+```
+
 For development/testing:
 
 ```bash
