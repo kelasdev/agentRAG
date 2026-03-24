@@ -1,5 +1,6 @@
 """Test for embedding batch processing."""
 
+import importlib.util
 import pytest
 from unittest.mock import Mock, patch
 
@@ -45,6 +46,8 @@ def mock_llama_cpp():
 @pytest.fixture
 def mock_provider_fastembed(mock_fastembed):
     """Create mock provider for fastembed."""
+    if importlib.util.find_spec("fastembed") is None:
+        pytest.skip("fastembed is not installed in this environment")
     return EmbeddingProvider(
         provider="fastembed",
         model_name="BAAI/bge-small-en-v1.5",

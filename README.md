@@ -283,6 +283,29 @@ dist/
 agentrag ingest ./my-project
 ```
 
+### Code Graph (Definitions / Callers / Callees)
+
+agentRAG sekarang mendukung navigasi graph sederhana berbasis payload index **di Qdrant** (tanpa penyimpanan lain):
+
+- **Definitions**: temukan chunk definisi simbol (function/class/method) via `code_metadata.symbol_name`.
+- **Callers**: temukan chunk yang memanggil sebuah simbol via `code_metadata.calls`.
+- **Callees**: ambil daftar pemanggilan dari payload definisi (field `code_metadata.calls`).
+
+CLI commands:
+
+```bash
+# Definisi simbol
+agentrag defs calculate_roi --language python --limit 10
+
+# Siapa yang memanggil simbol ini?
+agentrag callers calculate_roi --language python --limit 25
+
+# Simbol ini memanggil apa saja?
+agentrag callees calculate_roi --language python
+```
+
+MCP tool (opsional): `code_graph` dengan `action` salah satu dari: `definitions`, `callers`, `callees`.
+
 ### URL Ingest Details
 
 - Fetch path: `JINA_READER_BASE_URL + target_url` (default `https://r.jina.ai/`).

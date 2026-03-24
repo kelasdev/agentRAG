@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 from qdrant_client import QdrantClient
@@ -37,25 +38,130 @@ class QdrantStore:
             )
         self._ensure_payload_indexes()
 
+    def ensure_payload_indexes(self) -> None:
+        """Ensure payload indexes exist for the current collection.
+
+        This does not create the collection (safe for callers that don't know vector_size).
+        """
+        self._ensure_payload_indexes()
+
     def _ensure_payload_indexes(self) -> None:
-        # Improves delta re-ingest lookup by source_id filtering.
-        try:
-            self.client.create_payload_index(
-                collection_name=self.collection_name,
-                field_name="source_id",
-                field_schema="keyword",
-            )
-        except TypeError:
-            # Backward compatibility for older clients that infer schema.
+        # Improves filtering performance for delta re-ingest + graph-like queries.
+        # NOTE: Qdrant payload indexes are idempotent; failures are non-fatal.
+
+        def _create_keyword_index(field_name: str) -> None:
             try:
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
-                    field_name="source_id",
+                    field_name=field_name,
+                    field_schema="keyword",
                 )
+                return
+            except TypeError:
+                # Backward compatibility for older clients that infer schema.
+                try:
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name=field_name,
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
-        except Exception:
-            pass
+
+        # Delta sync (ingest)
+        _create_keyword_index("source_id")
+
+        # Core query filters
+        _create_keyword_index("node_type")
+        _create_keyword_index("access_level")
+
+        # Code graph / symbol filters
+        _create_keyword_index("code_metadata.language")
+        _create_keyword_index("code_metadata.symbol_name")
+        # Array-of-keywords filter: used for "find callers" by callee symbol.
+        _create_keyword_index("code_metadata.calls")
+
+    def _scroll(
+        self,
+        query_filter: Filter | None,
+        limit: int,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> list[Any]:
+        """Scroll points using filter (no vector search).
+
+        Returns a list of point records (shape depends on qdrant-client version).
+        """
+        items: list[Any] = []
+        offset = None
+        remaining = max(int(limit), 0)
+        if remaining == 0:
+            return []
+        while remaining > 0:
+            page_limit = min(256, remaining)
+            points, next_page = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=query_filter,
+                limit=page_limit,
+                with_payload=with_payload,
+                with_vectors=with_vectors,
+                offset=offset,
+            )
+            items.extend(list(points))
+            remaining = limit - len(items)
+            if next_page is None:
+                break
+            offset = next_page
+        return items[:limit]
+
+    def find_definitions(
+        self,
+        symbol_name: str,
+        language: str | None = None,
+        access_level: str | None = None,
+        limit: int = 50,
+    ) -> list[Any]:
+        """Find code chunks that define a symbol.
+
+        This is payload-only (no embedding), intended for precise navigation.
+        """
+        conditions: list[FieldCondition] = [
+            FieldCondition(key="node_type", match=MatchValue(value="code")),
+            FieldCondition(key="code_metadata.symbol_name", match=MatchValue(value=symbol_name)),
+        ]
+        if language:
+            conditions.append(
+                FieldCondition(key="code_metadata.language", match=MatchValue(value=language))
+            )
+        if access_level:
+            conditions.append(FieldCondition(key="access_level", match=MatchValue(value=access_level)))
+        query_filter = Filter(must=conditions)
+        return self._scroll(query_filter=query_filter, limit=limit, with_payload=True, with_vectors=False)
+
+    def find_callers(
+        self,
+        callee_symbol_name: str,
+        language: str | None = None,
+        access_level: str | None = None,
+        limit: int = 50,
+    ) -> list[Any]:
+        """Find code chunks that call a given symbol name.
+
+        Uses payload filter on `code_metadata.calls`.
+        """
+        conditions: list[FieldCondition] = [
+            FieldCondition(key="node_type", match=MatchValue(value="code")),
+            FieldCondition(key="code_metadata.calls", match=MatchValue(value=callee_symbol_name)),
+        ]
+        if language:
+            conditions.append(
+                FieldCondition(key="code_metadata.language", match=MatchValue(value=language))
+            )
+        if access_level:
+            conditions.append(FieldCondition(key="access_level", match=MatchValue(value=access_level)))
+        query_filter = Filter(must=conditions)
+        return self._scroll(query_filter=query_filter, limit=limit, with_payload=True, with_vectors=False)
 
     def health_check(self) -> bool:
         try:

@@ -529,6 +529,166 @@ def query_command(
     typer.echo(json.dumps(response, ensure_ascii=True, indent=2))
 
 
+def _point_to_minimal_dict(point: object) -> dict[str, object]:
+    """Best-effort serialization for scroll/search point records."""
+    payload = getattr(point, "payload", None)
+    return {
+        "id": getattr(point, "id", None),
+        "payload": payload,
+    }
+
+
+@app.command("defs")
+def defs_command(
+    symbol: str = typer.Argument(..., help="Symbol name (function/class/method)"),
+    collection: str | None = typer.Option(None, help="Qdrant collection name"),
+    language: str | None = typer.Option(None, help="Programming language filter, e.g. python"),
+    access_level: str | None = typer.Option(None, help="public/internal/admin"),
+    limit: int = typer.Option(25, help="Max results"),
+) -> None:
+    """Find symbol definitions using Qdrant payload filters (no embeddings)."""
+    settings = get_settings()
+    collection_name = collection or settings.collection_name
+    ok, message, _ = _check_qdrant(
+        qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        timeout_seconds=2.0,
+        require_collection=True,
+        require_non_empty=False,
+    )
+    if not ok:
+        _json_error_and_exit(
+            code="QDRANT_PREFLIGHT_FAILED",
+            message=message,
+            details={"collection": collection_name},
+        )
+
+    store = QdrantStore(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        vector_size=1,
+    )
+    store.ensure_payload_indexes()
+    points = store.find_definitions(
+        symbol_name=symbol.strip(),
+        language=language,
+        access_level=access_level,
+        limit=int(limit),
+    )
+    out = {
+        "query": {"symbol": symbol, "language": language, "access_level": access_level, "limit": limit},
+        "count": len(points),
+        "definitions": [_point_to_minimal_dict(p) for p in points],
+    }
+    typer.echo(json.dumps(out, ensure_ascii=True, indent=2))
+
+
+@app.command("callers")
+def callers_command(
+    symbol: str = typer.Argument(..., help="Callee symbol name"),
+    collection: str | None = typer.Option(None, help="Qdrant collection name"),
+    language: str | None = typer.Option(None, help="Programming language filter, e.g. python"),
+    access_level: str | None = typer.Option(None, help="public/internal/admin"),
+    limit: int = typer.Option(25, help="Max results"),
+) -> None:
+    """Find callers of a symbol (chunks where `code_metadata.calls` contains it)."""
+    settings = get_settings()
+    collection_name = collection or settings.collection_name
+    ok, message, _ = _check_qdrant(
+        qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        timeout_seconds=2.0,
+        require_collection=True,
+        require_non_empty=False,
+    )
+    if not ok:
+        _json_error_and_exit(
+            code="QDRANT_PREFLIGHT_FAILED",
+            message=message,
+            details={"collection": collection_name},
+        )
+
+    store = QdrantStore(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        vector_size=1,
+    )
+    store.ensure_payload_indexes()
+    points = store.find_callers(
+        callee_symbol_name=symbol.strip(),
+        language=language,
+        access_level=access_level,
+        limit=int(limit),
+    )
+    out = {
+        "query": {"callee_symbol": symbol, "language": language, "access_level": access_level, "limit": limit},
+        "count": len(points),
+        "callers": [_point_to_minimal_dict(p) for p in points],
+    }
+    typer.echo(json.dumps(out, ensure_ascii=True, indent=2))
+
+
+@app.command("callees")
+def callees_command(
+    symbol: str = typer.Argument(..., help="Caller symbol name (definition to inspect)"),
+    collection: str | None = typer.Option(None, help="Qdrant collection name"),
+    language: str | None = typer.Option(None, help="Programming language filter, e.g. python"),
+    access_level: str | None = typer.Option(None, help="public/internal/admin"),
+    limit: int = typer.Option(25, help="Max definition records to inspect"),
+) -> None:
+    """Get callees from symbol definition payload (reads `code_metadata.calls`)."""
+    settings = get_settings()
+    collection_name = collection or settings.collection_name
+    ok, message, _ = _check_qdrant(
+        qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        timeout_seconds=2.0,
+        require_collection=True,
+        require_non_empty=False,
+    )
+    if not ok:
+        _json_error_and_exit(
+            code="QDRANT_PREFLIGHT_FAILED",
+            message=message,
+            details={"collection": collection_name},
+        )
+
+    store = QdrantStore(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection_name=collection_name,
+        vector_size=1,
+    )
+    store.ensure_payload_indexes()
+    defs = store.find_definitions(
+        symbol_name=symbol.strip(),
+        language=language,
+        access_level=access_level,
+        limit=int(limit),
+    )
+
+    callees: list[str] = []
+    for p in defs:
+        payload = getattr(p, "payload", None) or {}
+        code_meta = payload.get("code_metadata") or {}
+        raw_calls = code_meta.get("calls") or []
+        for c in raw_calls:
+            if isinstance(c, str) and c not in callees:
+                callees.append(c)
+
+    out = {
+        "query": {"caller_symbol": symbol, "language": language, "access_level": access_level, "limit": limit},
+        "definitions_count": len(defs),
+        "callees": callees,
+    }
+    typer.echo(json.dumps(out, ensure_ascii=True, indent=2))
+
+
 @app.command("health")
 def health_command(collection: str | None = typer.Option(None, help="Qdrant collection name")) -> None:
     settings = get_settings()

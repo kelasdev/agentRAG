@@ -100,6 +100,40 @@ async def list_tools() -> List[Tool]:
                 "properties": {},
                 "required": []
             }
+        ),
+        Tool(
+            name="code_graph",
+            description="Code graph navigation using Qdrant payload filters (definitions/callers/callees)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Graph action",
+                        "enum": ["definitions", "callers", "callees"]
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Symbol name (function/class/method)"
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Optional language filter (e.g. python)"
+                    },
+                    "access_level": {
+                        "type": "string",
+                        "description": "Filter by access level",
+                        "default": "internal",
+                        "enum": ["public", "internal", "admin"]
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max number of records to return/inspect",
+                        "default": 25
+                    }
+                },
+                "required": ["action", "symbol"]
+            }
         )
     ]
 
@@ -134,6 +168,8 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
             return await _handle_ingest_documents(arguments, embedder, store)
         elif name == "health_check":
             return await _handle_health_check(embedder, store)
+        elif name == "code_graph":
+            return await _handle_code_graph(arguments, store)
         else:
             raise ValueError(f"Unknown tool: {name}")
             
@@ -322,6 +358,80 @@ async def _handle_health_check(embedder: EmbeddingProvider, store: QdrantStore) 
     }
     
     return [TextContent(type="text", text=json.dumps(health_status, ensure_ascii=True, indent=2))]
+
+
+async def _handle_code_graph(arguments: Dict[str, Any], store: QdrantStore) -> List[TextContent]:
+    """Handle code_graph tool call using payload-only graph queries."""
+    store.ensure_payload_indexes()
+    action = (arguments.get("action") or "").strip().lower()
+    symbol = (arguments.get("symbol") or "").strip()
+    language = arguments.get("language")
+    access_level = arguments.get("access_level", "internal")
+    limit = int(arguments.get("limit", 25) or 25)
+
+    if not action or action not in {"definitions", "callers", "callees"}:
+        raise ValueError("action must be one of: definitions, callers, callees")
+    if not symbol:
+        raise ValueError("symbol cannot be empty")
+
+    if action == "definitions":
+        points = store.find_definitions(
+            symbol_name=symbol,
+            language=language,
+            access_level=access_level,
+            limit=limit,
+        )
+        out = {
+            "action": action,
+            "symbol": symbol,
+            "language": language,
+            "access_level": access_level,
+            "count": len(points),
+            "definitions": [{"id": getattr(p, "id", None), "payload": getattr(p, "payload", None)} for p in points],
+        }
+        return [TextContent(type="text", text=json.dumps(out, ensure_ascii=True, indent=2))]
+
+    if action == "callers":
+        points = store.find_callers(
+            callee_symbol_name=symbol,
+            language=language,
+            access_level=access_level,
+            limit=limit,
+        )
+        out = {
+            "action": action,
+            "callee_symbol": symbol,
+            "language": language,
+            "access_level": access_level,
+            "count": len(points),
+            "callers": [{"id": getattr(p, "id", None), "payload": getattr(p, "payload", None)} for p in points],
+        }
+        return [TextContent(type="text", text=json.dumps(out, ensure_ascii=True, indent=2))]
+
+    # action == "callees"
+    defs = store.find_definitions(
+        symbol_name=symbol,
+        language=language,
+        access_level=access_level,
+        limit=limit,
+    )
+    callees: list[str] = []
+    for p in defs:
+        payload = getattr(p, "payload", None) or {}
+        code_meta = payload.get("code_metadata") or {}
+        raw_calls = code_meta.get("calls") or []
+        for c in raw_calls:
+            if isinstance(c, str) and c not in callees:
+                callees.append(c)
+    out = {
+        "action": action,
+        "caller_symbol": symbol,
+        "language": language,
+        "access_level": access_level,
+        "definitions_count": len(defs),
+        "callees": callees,
+    }
+    return [TextContent(type="text", text=json.dumps(out, ensure_ascii=True, indent=2))]
 
 
 async def main():

@@ -17,9 +17,10 @@ def test_env_status_ok(monkeypatch):
             qdrant_url="http://localhost:6333",
             qdrant_api_key="",
             collection_name="agentrag_memory",
-            embedding_provider="llama_cpp_python",
-            embedding_model="nomic-embed",
-            llama_cpp_embed_model_path="/home/kelasdev/models/nomic-embed-text-v2-moe.Q4_K_M.gguf",
+            # Use fastembed to avoid requiring a local model file path in tests.
+            embedding_provider="fastembed",
+            embedding_model="dummy-model",
+            llama_cpp_embed_model_path=None,
             llama_cpp_n_threads=4,
             final_top_k=3,
         ),

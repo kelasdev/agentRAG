@@ -1,6 +1,7 @@
 """Test for MCP Server."""
 
 import json
+import os
 import pytest
 from agentrag.mcp_server import (
     _handle_health_check,
@@ -10,6 +11,12 @@ from agentrag.mcp_server import (
 from agentrag.config import get_settings
 from agentrag.providers.embeddings import EmbeddingProvider
 from agentrag.qdrant_store import QdrantStore
+
+
+# These tests exercise MCP handlers that depend on a real configured environment
+# (QDRANT_URL + embedding runtime). Skip when not configured.
+if not os.getenv("QDRANT_URL"):
+    pytest.skip("QDRANT_URL is not set; skipping MCP server integration-style tests", allow_module_level=True)
 
 
 @pytest.fixture
