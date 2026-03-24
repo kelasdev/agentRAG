@@ -4,13 +4,13 @@
 
 ***Nama Proyek:** agentRAG
 
-***Tujuan Utama:** Membangun brain memory berbasis vektor yang mampu memberikan konteks akurat dari dokumen teks (FAQ, panduan) dan *source code* secara bersamaan tanpa merusak struktur atau makna.
+***Tujuan Utama:** Membangun brain memory berbasis vektor yang mampu memberikan konteks akurat dari dokumen teks (FAQ, panduan) dan *source code* secara bersamaan tanpa merusak struktur atau makna, sehingga AI agent tidak hanya mengandalkan grep file dan tebakan arsitektur.
 
 **Jenis Produk:** Library/Tool (bukan SaaS/Managed Service)
 
 ***Target Pengguna:**
 
-  -**CLI Tool** - Command-line interface untuk ingest dan query
+  -**CLI Tool** - Command-line interface untuk ingest, query, health check, dan watch-based incremental ingest
 
   -**Python Module** - Library yang bisa diimport dan digunakan dalam aplikasi Python
 
@@ -54,6 +54,8 @@ agentRAG memberikan:
 
 -**Custom Code Awareness** - AI bisa memahami fungsi/class custom yang tidak ada di training data
 
+-**Structured Retrieval over Grep-and-Guess** - Agent diarahkan ke chunk, metadata, dan relasi kode yang lebih relevan, bukan sekadar membuka file acak berdasarkan keyword
+
 -**Akurasi Konteks** - Retrieval yang tepat dari teks dan kode
 
 -**Efisiensi Resource** - Berjalan optimal di 2GB RAM, 2 Core CPU
@@ -75,7 +77,9 @@ agentRAG memberikan:
 
 -**Beyond Training Data** - AI bisa memahami custom code yang tidak pernah dilihat saat training
 
--**Multi-Interface** - CLI, Python Module, dan MCP Server dalam satu package
+-**Reduced Architecture Guessing** - Agent diberi retrieval yang lebih terstruktur melalui metadata, symbol lookup, dan code relationship queries
+
+-**Multi-Interface** - CLI, Python Module, dan MCP Server dalam satu package, termasuk mode watch untuk sinkronisasi lokal
 
 -**Resource Efficiency** - Berjalan di hardware terbatas
 
@@ -133,7 +137,7 @@ agentRAG memberikan:
 
 #### Integration Points
 
--**File System** - Document ingestion
+-**File System** - Document ingestion dan local file watching untuk incremental re-ingest
 
 -**API Endpoints** - Query interface
 
@@ -608,6 +612,7 @@ graph TD
 ### Arsitektur Komponen (Ringkas)
 
 1. Ingest Layer: local file ingest + URL ingest (Jina Reader) + sanitasi konten web + chunking teks/kode + enrichment metadata
+   - CLI watch mode: monitor perubahan file lokal dan trigger batched re-ingest dengan debounce
 2. Retrieval Storage: Qdrant Cloud URL sebagai vector store utama
 3. Query Planner: intent/constraint extraction untuk metadata filter
 4. Provider Router: fastembed/local GGUF/openai-compatible endpoint
@@ -644,6 +649,7 @@ Sebelum proses utama berjalan, CLI melakukan preflight:
 
 * `query`: cek koneksi Qdrant, collection ada + tidak kosong, inisialisasi embedding, dan kesesuaian dimensi embedding vs dimensi collection.
 * `ingest`: cek koneksi Qdrant, inisialisasi embedding, dan jika collection sudah ada maka dimensi harus sesuai. Jika collection belum ada, collection dibuat mengikuti dimensi model aktif.
+* `watch`: menggunakan pipeline `ingest` yang sama untuk file yang berubah, sehingga validasi runtime dan aturan delta sync tetap konsisten.
 
 Jika dimensi tidak cocok, proses dihentikan sebelum retrieval/ingest berjalan.
 
@@ -667,6 +673,14 @@ Contoh:
 ```bash
 agentrag ingest "https://example.com/a.pdf" "https://example.com/b.md"
 agentrag ingest ./docs "https://example.com/spec" --dry-run
+```
+
+Untuk sinkronisasi lokal berkelanjutan, CLI juga menyediakan:
+
+```bash
+agentrag watch ./docs
+agentrag watch ./my-project --extensions .py,.md --batch-size 3 --debounce-seconds 2
+agentrag watch ./my-project --dry-run
 ```
 
 ### Error Response Format (JSON)
@@ -1120,6 +1134,8 @@ sequenceDiagram
 7. Delete stale chunks only (per `source_id`, bukan delete massal koleksi)
 8. Vector storage with metadata (Qdrant Cloud URL)
 9. Optional dry-run mode (`agentrag ingest ... --dry-run`) untuk lihat `new/unchanged/stale/skipped` tanpa write
+10. Optional watch mode (`agentrag watch ...`) untuk memantau perubahan filesystem lokal, menghormati `.gitignore`, lalu men-trigger batched ingest berbasis debounce
+11. Watch mode dapat dibatasi dengan filter extension agar hanya subset file tertentu yang diproses
 
 
 1. Query preprocessing

@@ -4,11 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 
-> **Intelligent Memory System for AI Agents** - Hybrid text+code RAG with automatic query understanding and MCP integration.
+> **Intelligent Memory System for AI Agents** - Hybrid text+code RAG that helps agents reason over codebases with structured retrieval instead of naive grep-and-guess.
 
 ## 🎯 Overview
 
-**agentRAG** adalah sistem memory cerdas yang dirancang khusus untuk AI agents. Sistem ini memahami konteks query Anda secara otomatis, membedakan antara dokumentasi dan kode, serta memberikan hasil pencarian yang relevan dengan ranking yang akurat.
+**agentRAG** adalah sistem memory cerdas yang dirancang khusus untuk AI agents. Sistem ini membantu agent bekerja di atas codebase dan dokumentasi dengan retrieval yang lebih terstruktur, sehingga agent tidak hanya membuka file secara acak atau menebak arsitektur dari potongan teks yang kebetulan cocok.
 
 ### ✨ Key Features
 
