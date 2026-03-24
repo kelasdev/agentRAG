@@ -445,6 +445,44 @@ def ingest_command(
     )
 
 
+@app.command("watch")
+def watch_command(
+    target: str = typer.Argument(".", help="Folder yang akan dipantau."),
+    batch_size: int = typer.Option(5, "--batch-size", min=1, help="Trigger ingest saat jumlah file pending mencapai nilai ini."),
+    debounce_seconds: float = typer.Option(
+        3.0,
+        "--debounce-seconds",
+        min=0.1,
+        help="Jeda setelah event terakhir sebelum ingest dijalankan.",
+    ),
+    non_recursive: bool = typer.Option(False, "--non-recursive", help="Matikan recursive watch."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Log file target tanpa menjalankan ingest."),
+    extensions: str = typer.Option(
+        "",
+        "--extensions",
+        help="Daftar extension dipisah koma, misalnya .py,.md,.txt",
+    ),
+) -> None:
+    try:
+        from agentrag.watch import parse_extensions, start_watching
+    except ModuleNotFoundError as exc:
+        missing = getattr(exc, "name", "") or "dependency"
+        _json_error_and_exit(
+            code="WATCH_RUNTIME_DEPENDENCY_MISSING",
+            message=f"Missing dependency required for watch command: {missing}",
+            details={"hint": "install package with watchdog dependency"},
+        )
+
+    start_watching(
+        path=target,
+        recursive=not non_recursive,
+        batch_size=batch_size,
+        debounce_seconds=debounce_seconds,
+        dry_run=dry_run,
+        allowed_extensions=parse_extensions(extensions),
+    )
+
+
 @app.command("query")
 def query_command(
     q: str = typer.Argument(..., help="Query text"),

@@ -113,7 +113,20 @@ agentrag ingest \
 agentrag ingest ./docs "https://example.com/spec"
 ```
 
-### 3. Query
+### 3. Watch Local Changes
+
+```bash
+# Watch a folder and auto-ingest changes
+agentrag watch ./docs
+
+# Only watch selected file types
+agentrag watch ./docs --extensions .py,.md
+
+# Test watcher without ingesting
+agentrag watch ./docs --dry-run
+```
+
+### 4. Query
 
 ```bash
 # Basic query

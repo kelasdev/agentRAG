@@ -13,6 +13,7 @@ python-dotenv==1.2.2
 tree-sitter==0.25.2
 tree-sitter-languages==1.10.2
 httpx==0.28.1
+watchdog==4.0.2
 
 # Embedding providers
 fastembed==0.7.4

@@ -47,6 +47,9 @@ pip install -e .
 # Ingest documents
 agentrag ingest docs/PRD.md
 
+# Watch local changes
+agentrag watch ./docs
+
 # Query memory
 agentrag query "qdrant cloud url" --node-type text --top-k 3
 

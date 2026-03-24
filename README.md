@@ -34,6 +34,11 @@
   - Hapus chunks yang sudah tidak ada
   - Stable chunk identity dengan content hashing
 
+- **👀 Watch Mode** - Pantau folder dan ingest perubahan secara batch:
+  - Command: `agentrag watch <folder>`
+  - Menghormati `.gitignore`
+  - Debounce, batching, dan extension filter
+
 - **🌐 URL Ingest** - Ingest langsung dari web:
   - Support PDF, DOCX, Markdown, HTML
   - Auto-sanitization untuk menghilangkan noise (header/footer/menu)
@@ -113,6 +118,14 @@ Mixed local + URL targets:
 
 ```bash
 agentrag ingest ./docs "https://example.com/spec"
+```
+
+Watch a folder and auto-ingest changes:
+
+```bash
+agentrag watch ./docs
+agentrag watch ./my-project --extensions .py,.md --batch-size 3 --debounce-seconds 2
+agentrag watch ./my-project --dry-run
 ```
 
 4. Run query:
@@ -248,6 +261,9 @@ Return best available results
 - URL ingest fetches content through `https://r.jina.ai/` and sanitizes common web noise (header/footer/menu separators/emojis) before chunking.
 - For URL sources, `source_id` is the URL itself. Re-running ingest on the same URL performs delta sync against that URL.
 - Dry-run is available to inspect changes without writing:
+ - `watch` monitors file changes and triggers batched `ingest` calls.
+ - `watch` uses Git-aware ignore handling when the target folder is inside a Git repo.
+ - `watch` supports `--dry-run`, `--extensions`, `--batch-size`, `--debounce-seconds`, and `--non-recursive`.
 
 ```bash
 agentrag ingest ../PYRAG/test_data --dry-run
@@ -294,6 +310,9 @@ agentRAG sekarang mendukung navigasi graph sederhana berbasis payload index **di
 CLI commands:
 
 ```bash
+# Watch local changes and auto-ingest
+agentrag watch ./my-project --extensions .py,.md
+
 # Definisi simbol
 agentrag defs calculate_roi --language python --limit 10
 
